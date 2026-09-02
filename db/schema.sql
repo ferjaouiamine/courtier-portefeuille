@@ -474,7 +474,7 @@ $$;
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'courtier_app') then
-    grant connect on database courtier_portefeuille to courtier_app;
+    execute format('grant connect on database %I to courtier_app', current_database());
     grant usage on schema public to courtier_app;
     grant select, insert, update, delete on all tables in schema public to courtier_app;
     grant usage, select on all sequences in schema public to courtier_app;

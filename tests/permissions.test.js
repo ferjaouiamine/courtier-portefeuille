@@ -55,7 +55,7 @@ test('PostgreSQL isole les clients entre deux organisations', async (t) => {
   const organisationB = crypto.randomUUID();
   const nomMarqueur = `CLIENT-ISOLATION-${crypto.randomUUID()}`;
   const administration = new Pool({
-    connectionString: process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL,
+    connectionString: process.env.DATABASE_URL,
   });
   await administration.query('insert into organisations (id, nom) values ($1, $2)', [organisationB, 'Organisation test']);
 

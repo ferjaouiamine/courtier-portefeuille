@@ -315,7 +315,7 @@ def generer_sql(donnees):
         lignes.append(
             f"insert into compagnies (id, code, nom) values "
             f"({sql_texte(c['id'])}, {sql_texte(c['nom'])}, {sql_texte(c['nom'])}) "
-            f"on conflict (code) do nothing;"
+            f"on conflict do nothing;"
         )
 
     lignes.append("")

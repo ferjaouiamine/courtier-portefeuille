@@ -6,7 +6,7 @@ const { Client } = require('pg');
 
 async function executerFichierSql(client, cheminFichier) {
   const sql = fs.readFileSync(cheminFichier, 'utf8');
-  await client.query(sql);
+  await client.query(`set search_path to public;\n${sql}`);
 }
 
 async function main() {

@@ -20,6 +20,8 @@ async function main() {
   await client.connect();
 
   try {
+    await client.query('begin');
+    await client.query('set local search_path to public');
     await client.query("select set_config('app.organisation_id', $1, false)", [organisationId]);
     const existant = await client.query('select id from utilisateurs where email = $1', [email]);
     if (existant.rowCount > 0) {
@@ -34,7 +36,11 @@ async function main() {
       [organisationId, nom, email, hache]
     );
 
+    await client.query('commit');
     console.log(`Administrateur créé (id ${resultat.rows[0].id}). Vous pouvez maintenant vous connecter.`);
+  } catch (erreur) {
+    await client.query('rollback');
+    throw erreur;
   } finally {
     await client.end();
   }

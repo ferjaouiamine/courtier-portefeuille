@@ -20,6 +20,7 @@ async function main() {
   await client.connect();
   try {
     await client.query('begin');
+    await client.query('set local search_path to public');
     const organisation = await client.query(
       'insert into organisations (nom) values ($1) returning id, nom',
       [nomOrganisation.trim()]

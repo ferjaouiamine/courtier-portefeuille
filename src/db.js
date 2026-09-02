@@ -10,12 +10,13 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 // Exécute une lecture simple, hors transaction.
 async function requete(texte, parametres) {
   const organisationId = organisationCourante();
-  if (!organisationId) return pool.query(texte, parametres);
-
   const client = await pool.connect();
   try {
     await client.query('begin');
-    await client.query("select set_config('app.organisation_id', $1, true)", [organisationId]);
+    await client.query('set local search_path to public');
+    if (organisationId) {
+      await client.query("select set_config('app.organisation_id', $1, true)", [organisationId]);
+    }
     const resultat = await client.query(texte, parametres);
     await client.query('commit');
     return resultat;
@@ -34,6 +35,7 @@ async function transactionAvecUtilisateur(utilisateurId, fn) {
   const client = await pool.connect();
   try {
     await client.query('begin');
+    await client.query('set local search_path to public');
     await client.query("select set_config('app.utilisateur_id', $1, true)", [utilisateurId || null]);
     const organisationId = organisationCourante();
     if (organisationId) {
