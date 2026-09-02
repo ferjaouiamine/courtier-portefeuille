@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: courtier
+      POSTGRES_PASSWORD: courtier
+      POSTGRES_DB: courtier_portefeuille
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:-courtier_app_local}
+    ports:
+      - "5432:5432"
+    volumes:
+      - donnees_postgres:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U courtier -d courtier_portefeuille"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://courtier_app:${DB_APP_PASSWORD:-courtier_app_local}@db:5432/courtier_portefeuille
+      PORT: 3000
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:-change-moi-avec-une-valeur-aleatoire-longue}
+      JWT_DUREE: 12h
+      STOCKAGE_DRIVER: ${STOCKAGE_DRIVER:-local}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+      S3_SSE: ${S3_SSE:-AES256}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    ports:
+      - "3000:3000"
+    volumes:
+      - pieces_jointes:/app/uploads
+
+volumes:
+  donnees_postgres:
+  pieces_jointes:

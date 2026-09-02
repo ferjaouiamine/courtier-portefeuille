@@ -1,0 +1,332 @@
+const express = require('express');
+const { requete, transactionAvecUtilisateur } = require('../db');
+const { exigerConnexion, exigerRole } = require('../auth');
+const { gererErreur } = require('../erreurs');
+
+const routeur = express.Router();
+routeur.use(exigerConnexion);
+
+const BRANCHES_VALIDES = ['AUTO', 'IARD', 'VIE', 'SANTE', 'VOYAGE', 'CREDIT', 'AUTRE'];
+
+// =====================================================================
+// Compagnies
+// =====================================================================
+
+routeur.get('/compagnies', async (req, res) => {
+  try {
+    const resultat = await requete('select * from compagnies where supprime_le is null order by nom');
+    res.json(resultat.rows);
+  } catch (erreur) {
+    gererErreur(res, erreur, 'compagnies.liste');
+  }
+});
+
+routeur.post('/compagnies', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const { code, nom } = req.body || {};
+    if (!code || !nom) {
+      return res.status(400).json({ erreur: 'Le code et le nom de la compagnie sont obligatoires.' });
+    }
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
+      client.query('insert into compagnies (code, nom) values ($1, $2) returning *', [code, nom])
+    );
+    res.status(201).json(resultat.rows[0]);
+  } catch (erreur) {
+    gererErreur(res, erreur, 'compagnies.creation');
+  }
+});
+
+routeur.put('/compagnies/:id', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const { code, nom } = req.body || {};
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
+      client.query(
+        'update compagnies set code = $1, nom = $2 where id = $3 and supprime_le is null returning *',
+        [code, nom, req.params.id]
+      )
+    );
+    if (resultat.rowCount === 0) return res.status(404).json({ erreur: 'Compagnie introuvable ou archivée.' });
+    res.json(resultat.rows[0]);
+  } catch (erreur) {
+    gererErreur(res, erreur, 'compagnies.modification');
+  }
+});
+
+routeur.delete('/compagnies/:id', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const enUsage = await requete(
+      "select count(*)::int as total from contrats where compagnie_id = $1 and supprime_le is null",
+      [req.params.id]
+    );
+    if (enUsage.rows[0].total > 0) {
+      return res.status(409).json({ erreur: `Cette compagnie porte ${enUsage.rows[0].total} contrat(s). Archivez d'abord ces contrats.` });
+    }
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
+      client.query(
+        'update compagnies set supprime_le = now(), supprime_par = $1 where id = $2 and supprime_le is null returning id',
+        [req.utilisateur.id, req.params.id]
+      )
+    );
+    if (resultat.rowCount === 0) return res.status(404).json({ erreur: 'Compagnie introuvable ou déjà archivée.' });
+    res.json({ ok: true });
+  } catch (erreur) {
+    gererErreur(res, erreur, 'compagnies.archivage');
+  }
+});
+
+routeur.post('/compagnies/:id/restaurer', exigerRole('admin'), async (req, res) => {
+  try {
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
+      client.query(
+        'update compagnies set supprime_le = null, supprime_par = null where id = $1 and supprime_le is not null returning *',
+        [req.params.id]
+      )
+    );
+    if (resultat.rowCount === 0) return res.status(404).json({ erreur: "Cette compagnie n'est pas dans la corbeille." });
+    res.json(resultat.rows[0]);
+  } catch (erreur) {
+    gererErreur(res, erreur, 'compagnies.restauration');
+  }
+});
+
+// =====================================================================
+// Produits
+// =====================================================================
+
+routeur.get('/produits', async (req, res) => {
+  try {
+    const resultat = await requete('select * from produits where supprime_le is null order by branche, nom');
+    res.json(resultat.rows);
+  } catch (erreur) {
+    gererErreur(res, erreur, 'produits.liste');
+  }
+});
+
+routeur.post('/produits', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const { nom, branche } = req.body || {};
+    if (!nom || !BRANCHES_VALIDES.includes(branche)) {
+      return res.status(400).json({ erreur: 'Le nom du produit et une branche valide sont obligatoires.' });
+    }
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
+      client.query('insert into produits (nom, branche) values ($1, $2) returning *', [nom, branche])
+    );
+    res.status(201).json(resultat.rows[0]);
+  } catch (erreur) {
+    gererErreur(res, erreur, 'produits.creation');
+  }
+});
+
+routeur.put('/produits/:id', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const { nom, branche } = req.body || {};
+    if (!BRANCHES_VALIDES.includes(branche)) {
+      return res.status(400).json({ erreur: 'Branche invalide.' });
+    }
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
+      client.query(
+        'update produits set nom = $1, branche = $2 where id = $3 and supprime_le is null returning *',
+        [nom, branche, req.params.id]
+      )
+    );
+    if (resultat.rowCount === 0) return res.status(404).json({ erreur: 'Produit introuvable ou archivé.' });
+    res.json(resultat.rows[0]);
+  } catch (erreur) {
+    gererErreur(res, erreur, 'produits.modification');
+  }
+});
+
+routeur.delete('/produits/:id', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const enUsage = await requete(
+      "select count(*)::int as total from contrats where produit_id = $1 and supprime_le is null",
+      [req.params.id]
+    );
+    if (enUsage.rows[0].total > 0) {
+      return res.status(409).json({ erreur: `Ce produit porte ${enUsage.rows[0].total} contrat(s). Archivez d'abord ces contrats.` });
+    }
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
+      client.query(
+        'update produits set supprime_le = now(), supprime_par = $1 where id = $2 and supprime_le is null returning id',
+        [req.utilisateur.id, req.params.id]
+      )
+    );
+    if (resultat.rowCount === 0) return res.status(404).json({ erreur: 'Produit introuvable ou déjà archivé.' });
+    res.json({ ok: true });
+  } catch (erreur) {
+    gererErreur(res, erreur, 'produits.archivage');
+  }
+});
+
+routeur.post('/produits/:id/restaurer', exigerRole('admin'), async (req, res) => {
+  try {
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
+      client.query(
+        'update produits set supprime_le = null, supprime_par = null where id = $1 and supprime_le is not null returning *',
+        [req.params.id]
+      )
+    );
+    if (resultat.rowCount === 0) return res.status(404).json({ erreur: "Ce produit n'est pas dans la corbeille." });
+    res.json(resultat.rows[0]);
+  } catch (erreur) {
+    gererErreur(res, erreur, 'produits.restauration');
+  }
+});
+
+// =====================================================================
+// Corbeille (réservée à l'administrateur)
+// =====================================================================
+
+routeur.get('/corbeille', exigerRole('admin'), async (req, res) => {
+  try {
+    const resultat = await requete('select * from v_corbeille order by supprime_le desc');
+    res.json(resultat.rows);
+  } catch (erreur) {
+    gererErreur(res, erreur, 'corbeille.liste');
+  }
+});
+
+// =====================================================================
+// Tableau de bord
+// =====================================================================
+
+routeur.get('/tableau-de-bord', async (req, res) => {
+  try {
+    const [compteurs, parCompagnie, parBranche, encaissements, frise] = await Promise.all([
+      requete(`
+        select
+          count(*)::int as total_contrats,
+          count(*) filter (where statut = 'en_cours')::int as contrats_en_cours,
+          coalesce(sum(prime_totale) filter (where statut = 'en_cours'), 0) as primes_emises
+        from contrats where supprime_le is null
+      `),
+      requete(`
+        select compagnie_nom, count(*)::int as nb_contrats, coalesce(sum(prime_totale), 0) as primes
+        from v_portefeuille group by compagnie_nom order by primes desc
+      `),
+      requete(`
+        select branche, count(*)::int as nb_contrats, coalesce(sum(prime_totale), 0) as primes
+        from v_portefeuille group by branche order by primes desc
+      `),
+      requete(`
+        select to_char(date_trunc('month', date_paiement), 'YYYY-MM') as mois, coalesce(sum(montant), 0) as total
+        from paiements
+        where supprime_le is null and date_paiement >= date_trunc('month', current_date) - interval '11 months'
+        group by 1 order by 1
+      `),
+      requete(`
+        select echeance_id, contrat_id, type_echeance, date_echeance, niveau, jours_restants,
+               client_nom, numero_contrat, compagnie_nom, montant_prime, montant_regle
+        from v_echeances
+        where statut <> 'payee' and type_echeance = 'terme'
+          and date_echeance between current_date and current_date + 120
+        order by date_echeance
+      `),
+    ]);
+
+    const echeancesUrgence = await requete(`
+      select
+        count(*) filter (where niveau = 'en_retard')::int as en_retard,
+        count(*) filter (where jours_restants <= 30 and niveau <> 'en_retard')::int as sous_30_jours
+      from v_echeances where statut <> 'payee' and type_echeance = 'terme'
+    `);
+
+    res.json({
+      ...compteurs.rows[0],
+      ...echeancesUrgence.rows[0],
+      parCompagnie: parCompagnie.rows,
+      parBranche: parBranche.rows,
+      encaissements12Mois: encaissements.rows,
+      frise120Jours: frise.rows,
+    });
+  } catch (erreur) {
+    gererErreur(res, erreur, 'tableauDeBord');
+  }
+});
+
+// =====================================================================
+// Export CSV (UTF-8 avec BOM, séparateur ';', pour Excel en français)
+// =====================================================================
+
+function formaterMontantCsv(valeur) {
+  return String(valeur).replace('.', ',');
+}
+
+function formaterDateCsv(valeur) {
+  if (!valeur) return '';
+  const d = new Date(valeur);
+  return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
+}
+
+function echapperCsv(valeur) {
+  const texte = valeur === null || valeur === undefined ? '' : String(valeur);
+  return /[;"\n]/.test(texte) ? `"${texte.replace(/"/g, '""')}"` : texte;
+}
+
+routeur.get('/export/portefeuille.csv', async (req, res) => {
+  try {
+    const { statut, compagnie_id: compagnieId, produit_id: produitId, recherche } = req.query;
+    const conditions = ['c.supprime_le is null'];
+    const parametres = [];
+
+    if (statut) {
+      parametres.push(statut);
+      conditions.push(`c.statut = $${parametres.length}`);
+    }
+    if (compagnieId) {
+      parametres.push(compagnieId);
+      conditions.push(`c.compagnie_id = $${parametres.length}`);
+    }
+    if (produitId) {
+      parametres.push(produitId);
+      conditions.push(`c.produit_id = $${parametres.length}`);
+    }
+    if (recherche) {
+      parametres.push(`%${recherche}%`);
+      conditions.push(`(cl.nom ilike $${parametres.length} or c.numero_contrat ilike $${parametres.length})`);
+    }
+
+    const resultat = await requete(
+      `select c.numero_contrat, cl.nom as client_nom, cp.nom as compagnie_nom, pr.nom as produit_nom,
+              c.statut, c.date_effet, c.date_fin, c.fractionnement,
+              c.prime_totale
+       from contrats c
+       join clients cl on cl.id = c.client_id
+       join compagnies cp on cp.id = c.compagnie_id
+       join produits pr on pr.id = c.produit_id
+       where ${conditions.join(' and ')}
+       order by c.date_effet desc`,
+      parametres
+    );
+
+    const entetes = [
+      'Numéro de contrat', 'Client', 'Compagnie', 'Produit', 'Statut',
+      "Date d'effet", 'Date de fin', 'Fractionnement',
+      'Prime totale',
+    ];
+
+    const lignes = [entetes.join(';')];
+    for (const ligne of resultat.rows) {
+      lignes.push([
+        echapperCsv(ligne.numero_contrat),
+        echapperCsv(ligne.client_nom),
+        echapperCsv(ligne.compagnie_nom),
+        echapperCsv(ligne.produit_nom),
+        echapperCsv(ligne.statut),
+        formaterDateCsv(ligne.date_effet),
+        formaterDateCsv(ligne.date_fin),
+        echapperCsv(ligne.fractionnement),
+        formaterMontantCsv(ligne.prime_totale),
+      ].join(';'));
+    }
+
+    const contenu = '﻿' + lignes.join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="portefeuille.csv"');
+    res.send(contenu);
+  } catch (erreur) {
+    gererErreur(res, erreur, 'export.portefeuille');
+  }
+});
+
+module.exports = routeur;

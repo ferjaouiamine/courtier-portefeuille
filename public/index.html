@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Portefeuille — Courtier</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <!-- ===================== Connexion ===================== -->
+  <section id="vue-connexion" hidden>
+    <div class="carte">
+      <h1>Gestion de portefeuille</h1>
+      <p id="erreur-connexion" class="message-erreur" hidden></p>
+      <form id="formulaire-connexion">
+        <label>E-mail
+          <input type="email" id="connexion-email" autocomplete="username" required />
+        </label>
+        <label>Mot de passe
+          <input type="password" id="connexion-mot-de-passe" autocomplete="current-password" required />
+        </label>
+        <button type="submit" class="principal">Se connecter</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===================== Application ===================== -->
+  <div id="app" hidden>
+    <header id="app-entete">
+      <h1>Portefeuille</h1>
+      <nav id="navigation">
+        <button data-vue="tableau-de-bord">Tableau de bord</button>
+        <button data-vue="echeances">Échéances</button>
+        <button data-vue="contrats">Contrats</button>
+        <button data-vue="clients">Clients</button>
+        <button data-vue="referentiel">Référentiel</button>
+        <button data-vue="corbeille" id="nav-corbeille" hidden>Corbeille</button>
+      </nav>
+      <div id="zone-utilisateur">
+        <span id="nom-utilisateur"></span>
+        <button id="bouton-deconnexion" class="discret">Déconnexion</button>
+      </div>
+    </header>
+
+    <main id="contenu">
+
+      <!-- ----- Tableau de bord ----- -->
+      <section id="vue-tableau-de-bord" class="vue" hidden>
+        <div class="entete-vue"><h2>Tableau de bord</h2></div>
+        <div class="grille-stats" id="stats-tableau-de-bord"></div>
+        <div class="carte">
+          <h3>120 prochains jours</h3>
+          <div id="frise"></div>
+        </div>
+        <div class="carte" id="carte-prochaines-echeances">
+          <div class="entete-section">
+            <h3>Échéances proches</h3>
+            <button type="button" class="discret" data-vue="echeances">Voir toutes les échéances</button>
+          </div>
+          <div class="tableau-responsive">
+            <table>
+              <thead><tr><th>Date</th><th>Urgence</th><th>Client</th><th>Contrat</th><th>Compagnie</th><th>Montant</th></tr></thead>
+              <tbody id="corps-prochaines-echeances"></tbody>
+            </table>
+          </div>
+          <p id="etat-vide-prochaines-echeances" class="etat-vide" hidden>Aucune échéance dans les 120 prochains jours.</p>
+        </div>
+        <div class="grille-repartition">
+          <div class="carte">
+            <h3>Par compagnie</h3>
+            <div id="repartition-compagnie"></div>
+          </div>
+          <div class="carte">
+            <h3>Par branche</h3>
+            <div id="repartition-branche"></div>
+          </div>
+        </div>
+        <div class="carte">
+          <h3>Encaissements — 12 derniers mois</h3>
+          <div id="repartition-encaissements"></div>
+        </div>
+      </section>
+
+      <!-- ----- Échéances ----- -->
+      <section id="vue-echeances" class="vue" hidden>
+        <div class="entete-vue"><h2>Échéances</h2></div>
+        <div class="barre-filtres">
+          <label>Fenêtre
+            <select id="filtre-fenetre">
+              <option value="15">15 jours</option>
+              <option value="30">30 jours</option>
+              <option value="45" selected>45 jours</option>
+              <option value="120">120 jours</option>
+              <option value="99999">Toutes</option>
+            </select>
+          </label>
+          <label>Urgence
+            <select id="filtre-niveau">
+              <option value="">Toutes</option>
+              <option value="en_retard">En retard</option>
+              <option value="urgent">Urgent</option>
+              <option value="a_preparer">À préparer</option>
+              <option value="a_jour">À jour</option>
+            </select>
+          </label>
+          <label>Type
+            <select id="filtre-type-echeance">
+              <option value="">Tous</option>
+              <option value="terme">Terme de prime</option>
+              <option value="renouvellement">Renouvellement</option>
+            </select>
+          </label>
+          <label>Compagnie
+            <select id="filtre-compagnie-echeance"><option value="">Toutes</option></select>
+          </label>
+          <label>Recherche
+            <input type="search" id="filtre-recherche-echeance" placeholder="Client ou n° contrat" />
+          </label>
+        </div>
+        <div class="carte" style="padding:0">
+          <table>
+            <thead>
+              <tr>
+                <th>Échéance</th><th>Urgence</th><th>Client</th><th>Contrat</th><th>Compagnie</th>
+                <th>Type</th><th>Montant</th><th>Réglé</th><th>Statut</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="corps-tableau-echeances"></tbody>
+          </table>
+          <p id="etat-vide-echeances" class="etat-vide" hidden>Aucune échéance dans cette fenêtre. Tout est à jour.</p>
+        </div>
+        <div id="pagination-echeances" class="pagination"></div>
+      </section>
+
+      <!-- ----- Contrats ----- -->
+      <section id="vue-contrats" class="vue" hidden>
+        <div class="entete-vue">
+          <h2>Contrats</h2>
+          <div class="actions-ligne">
+            <a id="bouton-export-csv" href="#"><button type="button">Exporter en CSV</button></a>
+            <button type="button" class="principal" id="bouton-nouveau-contrat">Nouveau contrat</button>
+          </div>
+        </div>
+        <div class="barre-filtres">
+          <label>Statut
+            <select id="filtre-statut-contrat">
+              <option value="">Tous</option>
+              <option value="en_cours">En cours</option>
+              <option value="renouvele">Renouvelé</option>
+              <option value="resilie">Résilié</option>
+              <option value="archive">Archivé</option>
+            </select>
+          </label>
+          <label>Compagnie
+            <select id="filtre-compagnie-contrat"><option value="">Toutes</option></select>
+          </label>
+          <label>Produit
+            <select id="filtre-produit-contrat"><option value="">Tous</option></select>
+          </label>
+          <label>Recherche
+            <input type="search" id="filtre-recherche-contrat" placeholder="Client ou n° contrat" />
+          </label>
+          <label>Tri
+            <select id="filtre-tri-contrat">
+              <option value="date_effet">Date d'effet</option>
+              <option value="date_fin">Date de fin</option>
+              <option value="prime_totale">Prime totale</option>
+              <option value="client_nom">Client</option>
+            </select>
+          </label>
+        </div>
+        <div class="carte" style="padding:0">
+          <table>
+            <thead>
+              <tr>
+                <th>N° contrat</th><th>Client</th><th>Compagnie</th><th>Produit</th>
+                <th>Effet</th><th>Fin</th><th>Prime</th><th>Statut</th>
+              </tr>
+            </thead>
+            <tbody id="corps-tableau-contrats"></tbody>
+          </table>
+          <p id="etat-vide-contrats" class="etat-vide" hidden>Aucun contrat ne correspond à ces filtres.</p>
+        </div>
+        <div id="pagination-contrats" class="pagination"></div>
+      </section>
+
+      <!-- ----- Fiche contrat ----- -->
+      <section id="vue-fiche-contrat" class="vue" hidden>
+        <button type="button" class="discret" data-vue="contrats">← Retour aux contrats</button>
+        <div id="contenu-fiche-contrat"></div>
+      </section>
+
+      <!-- ----- Clients ----- -->
+      <section id="vue-clients" class="vue" hidden>
+        <div class="entete-vue">
+          <h2>Clients</h2>
+          <button type="button" class="principal" id="bouton-nouveau-client">Nouveau client</button>
+        </div>
+        <div class="barre-filtres">
+          <label>Recherche
+            <input type="search" id="filtre-recherche-client" placeholder="Nom, CIN ou téléphone" />
+          </label>
+        </div>
+        <div class="carte" style="padding:0">
+          <table>
+            <thead><tr><th>Nom</th><th>Type</th><th>CIN / matricule</th><th>Téléphone</th><th>Code Finasure</th><th>Actions</th></tr></thead>
+            <tbody id="corps-tableau-clients"></tbody>
+          </table>
+          <p id="etat-vide-clients" class="etat-vide" hidden>Aucun client ne correspond à cette recherche.</p>
+        </div>
+        <div id="pagination-clients" class="pagination"></div>
+      </section>
+
+      <!-- ----- Fiche client ----- -->
+      <section id="vue-fiche-client" class="vue" hidden>
+        <button type="button" class="discret" data-vue="clients">← Retour aux clients</button>
+        <div id="contenu-fiche-client"></div>
+      </section>
+
+      <!-- ----- Référentiel ----- -->
+      <section id="vue-referentiel" class="vue" hidden>
+        <div class="entete-vue"><h2>Référentiel</h2></div>
+        <div class="grille-repartition">
+          <div class="carte">
+            <div class="entete-vue"><h3>Compagnies</h3><button type="button" id="bouton-nouvelle-compagnie">Ajouter</button></div>
+            <table><tbody id="corps-tableau-compagnies"></tbody></table>
+          </div>
+          <div class="carte">
+            <div class="entete-vue"><h3>Produits</h3><button type="button" id="bouton-nouveau-produit">Ajouter</button></div>
+            <table><tbody id="corps-tableau-produits"></tbody></table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ----- Corbeille ----- -->
+      <section id="vue-corbeille" class="vue" hidden>
+        <div class="entete-vue"><h2>Corbeille</h2></div>
+        <div class="carte" style="padding:0">
+          <table>
+            <thead><tr><th>Table</th><th>Élément</th><th>Supprimé le</th><th></th></tr></thead>
+            <tbody id="corps-tableau-corbeille"></tbody>
+          </table>
+          <p id="etat-vide-corbeille" class="etat-vide" hidden>La corbeille est vide.</p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ===================== Modales ===================== -->
+
+  <dialog id="modale-client" aria-labelledby="titre-modale-client">
+    <div class="entete-modale">
+      <div>
+        <h3 id="titre-modale-client">Nouveau client</h3>
+        <p id="description-modale-client" class="description-modale">Renseignez les informations du client.</p>
+      </div>
+      <button type="button" class="discret" data-fermer-modale aria-label="Fermer">✕</button>
+    </div>
+    <form id="formulaire-client" class="corps-modale">
+      <div class="grille-formulaire">
+        <label class="pleine-largeur">Nom
+          <input type="text" id="client-nom" required />
+        </label>
+        <label>Type
+          <select id="client-type">
+            <option value="personne_physique">Personne physique</option>
+            <option value="personne_morale">Personne morale</option>
+          </select>
+        </label>
+        <label>CIN / matricule
+          <input type="text" id="client-cin" />
+        </label>
+        <label id="zone-client-date-naissance">Date de naissance
+          <input type="date" id="client-date-naissance" />
+        </label>
+        <label>Téléphone
+          <input type="tel" id="client-telephone" />
+        </label>
+        <label>Code client Finasure
+          <input type="text" id="client-code-finasure" />
+        </label>
+      </div>
+    </form>
+    <div class="pied-modale">
+      <button type="button" data-fermer-modale>Annuler</button>
+      <button type="submit" form="formulaire-client" class="principal" id="bouton-enregistrer-client">Créer le client</button>
+    </div>
+  </dialog>
+
+  <dialog id="modale-contrat">
+    <div class="entete-modale"><h3 id="titre-modale-contrat">Nouveau contrat</h3><button type="button" class="discret" data-fermer-modale>✕</button></div>
+    <form id="formulaire-contrat" class="corps-modale">
+      <div class="grille-formulaire">
+        <label class="pleine-largeur">Assuré / client
+          <select id="contrat-client" required></select>
+        </label>
+        <label>Souscripteur
+          <select id="contrat-souscripteur" required></select>
+        </label>
+        <label>Société de leasing
+          <input type="text" id="contrat-societe-leasing" placeholder="Nom de la société de leasing" />
+        </label>
+        <label>Payeur
+          <select id="contrat-payeur"><option value="">Souscripteur</option></select>
+        </label>
+        <label>N° de contrat
+          <input type="text" id="contrat-numero" required />
+        </label>
+        <label>Compagnie
+          <select id="contrat-compagnie" required></select>
+        </label>
+        <label>Produit
+          <select id="contrat-produit" required></select>
+        </label>
+        <label>Fréquence de paiement
+          <select id="contrat-fractionnement" required>
+            <option value="annuel">12 mois</option>
+            <option value="semestriel">6 mois</option>
+            <option value="trimestriel">3 mois</option>
+            <option value="prime_unique">Prime unique</option>
+          </select>
+        </label>
+        <label>Immatriculation
+          <input type="text" id="contrat-immatriculation" />
+        </label>
+        <label>Date d'effet
+          <input type="date" id="contrat-date-effet" required />
+        </label>
+        <label>Durée (mois)
+          <input type="number" id="contrat-duree" min="1" required />
+        </label>
+        <label>Date de fin
+          <input type="date" id="contrat-date-fin" required />
+        </label>
+        <label>Date d'échéance calculée
+          <input type="date" id="contrat-date-echeance" readonly />
+        </label>
+        <label>Prime totale (DT)
+          <input type="number" step="0.001" id="contrat-prime" required />
+        </label>
+      </div>
+    </form>
+    <div class="pied-modale">
+      <button type="button" data-fermer-modale>Annuler</button>
+      <button type="submit" form="formulaire-contrat" class="principal">Enregistrer</button>
+    </div>
+  </dialog>
+
+  <dialog id="modale-encaissement">
+    <div class="entete-modale"><h3>Encaisser</h3><button type="button" class="discret" data-fermer-modale>✕</button></div>
+    <form id="formulaire-encaissement" class="corps-modale">
+      <div class="grille-formulaire">
+        <label>Montant (DT)
+          <input type="number" step="0.001" min="0.001" id="encaissement-montant" required />
+        </label>
+        <label>Mode
+          <select id="encaissement-mode">
+            <option value="especes">Espèces</option>
+            <option value="cheque">Chèque</option>
+            <option value="virement">Virement</option>
+            <option value="carte">Carte</option>
+            <option value="autre">Autre</option>
+          </select>
+        </label>
+        <label>Référence
+          <input type="text" id="encaissement-reference" />
+        </label>
+        <label>Date
+          <input type="date" id="encaissement-date" />
+        </label>
+      </div>
+    </form>
+    <div class="pied-modale">
+      <button type="button" data-fermer-modale>Annuler</button>
+      <button type="submit" form="formulaire-encaissement" class="principal">Enregistrer l'encaissement</button>
+    </div>
+  </dialog>
+
+  <dialog id="modale-relance">
+    <div class="entete-modale"><h3>Tracer une relance</h3><button type="button" class="discret" data-fermer-modale>✕</button></div>
+    <form id="formulaire-relance" class="corps-modale">
+      <div class="grille-formulaire">
+        <label>Type
+          <select id="relance-type">
+            <option value="appel">Appel</option>
+            <option value="sms">SMS</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="email">E-mail</option>
+          </select>
+        </label>
+        <label class="pleine-largeur">Note
+          <textarea id="relance-note" rows="3"></textarea>
+        </label>
+      </div>
+    </form>
+    <div class="pied-modale">
+      <button type="button" data-fermer-modale>Annuler</button>
+      <button type="submit" form="formulaire-relance" class="principal">Enregistrer</button>
+    </div>
+  </dialog>
+
+  <dialog id="modale-compagnie">
+    <div class="entete-modale"><h3 id="titre-modale-compagnie">Nouvelle compagnie</h3><button type="button" class="discret" data-fermer-modale>✕</button></div>
+    <form id="formulaire-compagnie" class="corps-modale">
+      <div class="grille-formulaire">
+        <label>Code
+          <input type="text" id="compagnie-code" required />
+        </label>
+        <label>Nom
+          <input type="text" id="compagnie-nom" required />
+        </label>
+      </div>
+    </form>
+    <div class="pied-modale">
+      <button type="button" data-fermer-modale>Annuler</button>
+      <button type="submit" form="formulaire-compagnie" class="principal">Enregistrer</button>
+    </div>
+  </dialog>
+
+  <dialog id="modale-produit">
+    <div class="entete-modale"><h3 id="titre-modale-produit">Nouveau produit</h3><button type="button" class="discret" data-fermer-modale>✕</button></div>
+    <form id="formulaire-produit" class="corps-modale">
+      <div class="grille-formulaire">
+        <label>Nom
+          <input type="text" id="produit-nom" required />
+        </label>
+        <label>Branche
+          <select id="produit-branche">
+            <option value="AUTO">Auto</option>
+            <option value="IARD">IARD</option>
+            <option value="VIE">Vie</option>
+            <option value="SANTE">Santé</option>
+            <option value="VOYAGE">Voyage</option>
+            <option value="CREDIT">Crédit</option>
+            <option value="AUTRE">Autre</option>
+          </select>
+        </label>
+      </div>
+    </form>
+    <div class="pied-modale">
+      <button type="button" data-fermer-modale>Annuler</button>
+      <button type="submit" form="formulaire-produit" class="principal">Enregistrer</button>
+    </div>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{
+  "name": "courtier-portefeuille",
+  "version": "1.0.0",
+  "description": "Gestion de portefeuille pour cabinet de courtage en assurance",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node scripts/migrate.js",
+    "creer-admin": "node scripts/creer-admin.js",
+    "creer-organisation": "node scripts/creer-organisation.js",
+    "relances": "node scripts/relances.js",
+    "backup": "powershell -ExecutionPolicy Bypass -File scripts/backup.ps1",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1124.0",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.3.0",
+    "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

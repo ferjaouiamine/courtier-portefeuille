@@ -1,0 +1,9 @@
+node_modules/
+.env
+*.log
+db/import_donnees.sql
+db/rapport_import.txt
+*.xlsx
+uploads/
+backups/
+.DS_Store
