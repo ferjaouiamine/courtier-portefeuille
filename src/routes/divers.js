@@ -298,9 +298,11 @@ routeur.get('/tableau-de-bord', async (req, res) => {
       requete(`
         select
           count(*)::int as total_contrats,
-          count(*) filter (where statut = 'en_cours')::int as contrats_en_cours,
-          coalesce(sum(prime_totale) filter (where statut = 'en_cours'), 0) as primes_emises
-        from contrats where supprime_le is null
+          count(*) filter (where c.statut = 'en_cours')::int as contrats_en_cours,
+          coalesce(sum(c.prime_totale) filter (where c.statut = 'en_cours'), 0) as primes_emises
+        from contrats c
+        join clients cl on cl.id = c.client_id and cl.supprime_le is null
+        where c.supprime_le is null
       `),
       requete(`
         select compagnie_nom, count(*)::int as nb_contrats, coalesce(sum(prime_totale), 0) as primes
@@ -315,6 +317,7 @@ routeur.get('/tableau-de-bord', async (req, res) => {
         from paiements p
         join echeances e on e.id = p.echeance_id and e.supprime_le is null
         join contrats c on c.id = e.contrat_id and c.supprime_le is null
+        join clients cl on cl.id = c.client_id and cl.supprime_le is null
         where p.supprime_le is null and date_paiement >= date_trunc('month', current_date) - interval '11 months'
         group by 1 order by 1
       `),
