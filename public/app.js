@@ -10,7 +10,7 @@ const etat = {
   clientId: null,
   echeanceId: null,
   edition: {},
-  pages: { echeances: 1, contrats: 1, clients: 1 },
+  pages: { echeances: 1, contrats: 1, clients: 1, journal: 1 },
 };
 
 const $ = (selecteur, racine = document) => racine.querySelector(selecteur);
@@ -43,6 +43,49 @@ function formaterDate(valeur, avecHeure = false) {
 
 function libelleCode(valeur) {
   return String(valeur ?? '—').replaceAll('_', ' ');
+}
+
+const ACTIONS_AUDIT = {
+  creation: 'Ajout',
+  modification: 'Modification',
+  suppression: 'Archivage',
+  restauration: 'Restauration',
+  suppression_definitive: 'Suppression définitive',
+  connexion: 'Connexion',
+};
+
+const TYPES_AUDIT = {
+  utilisateurs: 'Utilisateur',
+  compagnies: 'Compagnie',
+  produits: 'Produit',
+  clients: 'Client',
+  contrats: 'Contrat',
+  echeances: 'Échéance',
+  paiements: 'Encaissement',
+  relances: 'Relance',
+  pieces_jointes_contrats: 'Pièce jointe',
+};
+
+function formaterValeurAudit(valeur) {
+  if (valeur === null || valeur === undefined || valeur === '') return 'Non renseigné';
+  if (typeof valeur === 'boolean') return valeur ? 'Oui' : 'Non';
+  if (/^\d{4}-\d{2}-\d{2}(?:T|$)/.test(String(valeur))) return formaterDate(valeur);
+  return libelleCode(valeur);
+}
+
+function detailsAudit(ligne) {
+  const modifications = ligne.modifications || [];
+  if (!modifications.length) return '<span class="texte-secondaire">—</span>';
+  const visibles = modifications.slice(0, 4).map((modification) => {
+    const valeur = ligne.action === 'creation'
+      ? formaterValeurAudit(modification.apres)
+      : `${formaterValeurAudit(modification.avant)} → ${formaterValeurAudit(modification.apres)}`;
+    return `<span><strong>${echapper(modification.champ)} :</strong> ${echapper(valeur)}</span>`;
+  }).join('');
+  const supplement = modifications.length > 4
+    ? `<span class="texte-secondaire">+ ${modifications.length - 4} autre(s) champ(s)</span>`
+    : '';
+  return `<span class="details-audit">${visibles}${supplement}</span>`;
 }
 
 function calculerDateEcheance() {
@@ -127,12 +170,13 @@ async function api(chemin, options = {}) {
 
 function appliquerDroits() {
   $('#nav-corbeille').hidden = etat.utilisateur.role !== 'admin';
+  $('#nav-journal').hidden = etat.utilisateur.role !== 'admin';
   $$('#bouton-nouveau-contrat, #bouton-nouveau-client, #bouton-nouvelle-compagnie, #bouton-nouveau-produit')
     .forEach((element) => { element.hidden = !peutEcrire(); });
 }
 
 async function changerVue(nom) {
-  if (nom === 'corbeille' && etat.utilisateur?.role !== 'admin') nom = 'tableau-de-bord';
+  if (['corbeille', 'journal'].includes(nom) && etat.utilisateur?.role !== 'admin') nom = 'tableau-de-bord';
   etat.vue = nom;
   effacerErreurs();
   $$('.vue').forEach((vue) => { vue.hidden = vue.id !== `vue-${nom}`; });
@@ -148,6 +192,7 @@ async function changerVue(nom) {
     contrats: chargerContrats,
     clients: chargerClients,
     referentiel: chargerReferentiel,
+    journal: chargerJournal,
     corbeille: chargerCorbeille,
   };
   try {
@@ -335,7 +380,10 @@ async function ouvrirFicheContrat(id) {
     <td>${formaterMontant(ligne.montant)}</td><td>${echapper(libelleCode(ligne.mode_paiement))}</td>
     <td>${echapper(ligne.reference || '—')}</td></tr>`).join('');
   const historique = contrat.historique.map((ligne) => `<div class="entree-historique">
-    <span class="date">${formaterDate(ligne.cree_le, true)}</span><span>${echapper(libelleCode(ligne.action))}</span></div>`).join('');
+    <span class="date">${formaterDate(ligne.cree_le, true)}</span>
+    <span><strong>${echapper(ACTIONS_AUDIT[ligne.action] || libelleCode(ligne.action))}</strong>
+    par ${echapper(ligne.utilisateur_nom)}${ligne.utilisateur_email ? `<br><span class="texte-secondaire">${echapper(ligne.utilisateur_email)}</span>` : ''}
+    ${detailsAudit(ligne)}</span></div>`).join('');
   const piecesJointes = (contrat.piecesJointes || []).map((piece) => `<li class="piece-jointe">
     <div><a href="/api/contrats/${echapper(contrat.id)}/pieces-jointes/${echapper(piece.id)}/telecharger">${echapper(piece.nom_original)}</a>
     <span>${echapper((Number(piece.taille_octets) / 1024 / 1024).toFixed(2))} Mo · ${formaterDate(piece.ajoute_le, true)}</span></div>
@@ -388,13 +436,19 @@ async function ouvrirFicheClient(id) {
     <td>${echapper(ligne.compagnie_nom)}</td><td>${echapper(ligne.produit_nom)}</td><td>${formaterDate(ligne.date_effet)}</td>
     <td>${formaterMontant(ligne.prime_totale)}</td><td>${echapper(libelleCode(ligne.statut))}</td>
     <td>${Number(ligne.nombre_pieces) || 0}</td></tr>`).join('');
+  const historique = (client.historique || []).map((ligne) => `<div class="entree-historique">
+    <span class="date">${formaterDate(ligne.cree_le, true)}</span>
+    <span><strong>${echapper(ACTIONS_AUDIT[ligne.action] || libelleCode(ligne.action))}</strong>
+    par ${echapper(ligne.utilisateur_nom)}${ligne.utilisateur_email ? `<br><span class="texte-secondaire">${echapper(ligne.utilisateur_email)}</span>` : ''}
+    ${detailsAudit(ligne)}</span></div>`).join('');
   $('#contenu-fiche-client').innerHTML = `<div class="fiche-entete"><div><h2>${echapper(client.nom)}</h2>
     <p>${echapper(libelleCode(client.type_client))} — ${echapper(client.cin_ou_matricule || 'Identifiant non renseigné')}</p></div>${actions}</div>
     <div class="carte fiche-cumuls"><div>Cumul des primes<div class="valeur">${formaterMontant(client.cumulPrimes)}</div></div>
     <div>Téléphone<div class="valeur">${client.telephone ? `<a href="tel:${echapper(client.telephone)}">${echapper(client.telephone)}</a>` : '—'}</div></div>
     <div>Date de naissance<div class="valeur">${formaterDate(client.date_naissance)}</div></div>
     <div>Code Finasure<div class="valeur">${echapper(client.code_client_finasure || '—')}</div></div></div>
-    <div class="carte"><h3>Contrats</h3>${contrats ? `<table><thead><tr><th>N° contrat</th><th>Compagnie</th><th>Produit</th><th>Effet</th><th>Prime</th><th>Statut</th><th>Documents</th></tr></thead><tbody>${contrats}</tbody></table>` : '<p class="etat-vide">Aucun contrat.</p>'}</div>`;
+    <div class="carte"><h3>Contrats</h3>${contrats ? `<table><thead><tr><th>N° contrat</th><th>Compagnie</th><th>Produit</th><th>Effet</th><th>Prime</th><th>Statut</th><th>Documents</th></tr></thead><tbody>${contrats}</tbody></table>` : '<p class="etat-vide">Aucun contrat.</p>'}</div>
+    <div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>`;
   await changerVue('fiche-client');
 }
 
@@ -417,6 +471,30 @@ async function chargerCorbeille() {
       <button type="button" class="danger" data-action="supprimer-definitivement" data-table="${echapper(ligne.table_source)}" data-id="${ligne.id}">Supprimer définitivement</button>
     </div></td></tr>`).join('');
   $('#etat-vide-corbeille').hidden = lignes.length > 0;
+}
+
+function filtresJournal() {
+  return {
+    action: $('#filtre-action-journal').value,
+    table: $('#filtre-table-journal').value,
+    recherche: $('#filtre-recherche-journal').value.trim(),
+  };
+}
+
+async function chargerJournal() {
+  const resultat = await api(`/api/journal-audit?${parametres({
+    ...filtresJournal(), page: etat.pages.journal, limite: 50,
+  })}`);
+  $('#corps-tableau-journal').innerHTML = resultat.donnees.map((ligne) => `<tr>
+    <td>${formaterDate(ligne.cree_le, true)}</td>
+    <td><strong>${echapper(ligne.utilisateur_nom)}</strong>${ligne.utilisateur_email ? `<br><span class="texte-secondaire">${echapper(ligne.utilisateur_email)}</span>` : ''}</td>
+    <td><span class="etiquette-audit ${echapper(ligne.action)}">${echapper(ACTIONS_AUDIT[ligne.action] || libelleCode(ligne.action))}</span></td>
+    <td>${echapper(TYPES_AUDIT[ligne.table_cible] || libelleCode(ligne.table_cible))}</td>
+    <td><strong>${echapper(ligne.element)}</strong></td>
+    <td>${detailsAudit(ligne)}</td>
+  </tr>`).join('');
+  $('#etat-vide-journal').hidden = resultat.donnees.length > 0;
+  afficherPagination('journal', resultat.pagination);
 }
 
 function ouvrirModaleClient(client = null) {
@@ -537,6 +615,7 @@ async function actionDeleguee(event) {
       if (cible === 'echeances') await chargerEcheances();
       else if (cible === 'contrats') await chargerContrats();
       else if (cible === 'clients') await chargerClients();
+      else if (cible === 'journal') await chargerJournal();
     } else if (action === 'modifier-client') {
       const clientId = id || etat.clientId;
       ouvrirModaleClient(await api(`/api/clients/${clientId}`));
@@ -709,6 +788,15 @@ function brancherEvenements() {
   $('#filtre-recherche-client').addEventListener('input', debounce(() => {
     etat.pages.clients = 1;
     chargerClients().catch((e) => afficherErreur(e.message));
+  }));
+  ['#filtre-action-journal', '#filtre-table-journal']
+    .forEach((id) => $(id).addEventListener('change', () => {
+      etat.pages.journal = 1;
+      chargerJournal().catch((e) => afficherErreur(e.message));
+    }));
+  $('#filtre-recherche-journal').addEventListener('input', debounce(() => {
+    etat.pages.journal = 1;
+    chargerJournal().catch((e) => afficherErreur(e.message));
   }));
   $('#bouton-nouveau-client').addEventListener('click', () => ouvrirModaleClient());
   $('#bouton-nouveau-contrat').addEventListener('click', () => ouvrirModaleContrat().catch((e) => afficherErreur(e.message)));

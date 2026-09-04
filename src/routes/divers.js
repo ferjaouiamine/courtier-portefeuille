@@ -2,6 +2,8 @@ const express = require('express');
 const { requete, transactionAvecUtilisateur } = require('../db');
 const { exigerConnexion, exigerRole } = require('../auth');
 const { gererErreur } = require('../erreurs');
+const { lirePagination, reponsePaginee } = require('../pagination');
+const { journaliser, resumerLigneAudit } = require('../audit');
 const stockage = require('../stockage');
 
 const routeur = express.Router();
@@ -198,7 +200,7 @@ routeur.delete('/corbeille/:table/:id', exigerRole('admin'), async (req, res) =>
     const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       if (table === 'contrats') {
         const contrat = await client.query(
-          'select id from contrats where id = $1 and supprime_le is not null for update',
+          'select * from contrats where id = $1 and supprime_le is not null for update',
           [id]
         );
         if (contrat.rowCount === 0) return { introuvable: true };
@@ -217,18 +219,6 @@ routeur.delete('/corbeille/:table/:id', exigerRole('admin'), async (req, res) =>
         );
 
         await client.query(
-          `delete from journal_audit
-           where (table_cible = 'contrats' and ligne_id = $1)
-              or (table_cible = 'echeances' and ligne_id in (select id from echeances where contrat_id = $1))
-              or (table_cible = 'paiements' and ligne_id in (
-                    select p.id from paiements p join echeances e on e.id = p.echeance_id where e.contrat_id = $1
-                  ))
-              or (table_cible = 'relances' and ligne_id in (
-                    select r.id from relances r join echeances e on e.id = r.echeance_id where e.contrat_id = $1
-                  ))`,
-          [id]
-        );
-        await client.query(
           'delete from relances where echeance_id in (select id from echeances where contrat_id = $1)',
           [id]
         );
@@ -238,6 +228,14 @@ routeur.delete('/corbeille/:table/:id', exigerRole('admin'), async (req, res) =>
         );
         await client.query('delete from pieces_jointes_contrats where contrat_id = $1', [id]);
         await client.query('delete from echeances where contrat_id = $1', [id]);
+        await journaliser(client, {
+          utilisateurId: req.utilisateur.id,
+          action: 'suppression',
+          tableCible: 'contrats',
+          ligneId: id,
+          etatAvant: contrat.rows[0],
+          etatApres: { suppression_definitive: true },
+        });
         await client.query('delete from contrats where id = $1', [id]);
         return { clesStockage: pieces.rows.map((piece) => piece.nom_stockage) };
       }
@@ -258,12 +256,19 @@ routeur.delete('/corbeille/:table/:id', exigerRole('admin'), async (req, res) =>
       }
 
       const element = await client.query(
-        `select id from ${table} where id = $1 and supprime_le is not null for update`,
+        `select * from ${table} where id = $1 and supprime_le is not null for update`,
         [id]
       );
       if (element.rowCount === 0) return { introuvable: true };
 
-      await client.query('delete from journal_audit where table_cible = $1 and ligne_id = $2', [table, id]);
+      await journaliser(client, {
+        utilisateurId: req.utilisateur.id,
+        action: 'suppression',
+        tableCible: table,
+        ligneId: id,
+        etatAvant: element.rows[0],
+        etatApres: { suppression_definitive: true },
+      });
       await client.query(`delete from ${table} where id = $1`, [id]);
       return {};
     });
@@ -285,6 +290,60 @@ routeur.delete('/corbeille/:table/:id', exigerRole('admin'), async (req, res) =>
     res.json({ ok: true, fichiersNonSupprimes });
   } catch (erreur) {
     gererErreur(res, erreur, 'corbeille.suppression-definitive');
+  }
+});
+
+// Journal transversal, réservé aux administrateurs de l'organisation courante.
+routeur.get('/journal-audit', exigerRole('admin'), async (req, res) => {
+  try {
+    const { action, table: tableCible, recherche } = req.query;
+    const { page, limite, offset } = lirePagination(req);
+    const conditions = ['1 = 1'];
+    const parametres = [];
+
+    if (action === 'suppression_definitive') {
+      conditions.push("j.action = 'suppression' and coalesce((j.etat_apres ->> 'suppression_definitive')::boolean, false)");
+    } else if (action === 'suppression') {
+      conditions.push("j.action = 'suppression' and not coalesce((j.etat_apres ->> 'suppression_definitive')::boolean, false)");
+    } else if (action) {
+      parametres.push(action);
+      conditions.push(`j.action = $${parametres.length}`);
+    }
+    if (tableCible) {
+      parametres.push(tableCible);
+      conditions.push(`j.table_cible = $${parametres.length}`);
+    }
+    if (recherche) {
+      parametres.push(`%${recherche}%`);
+      conditions.push(`(
+        coalesce(u.nom, '') ilike $${parametres.length}
+        or coalesce(u.email, '') ilike $${parametres.length}
+        or j.table_cible ilike $${parametres.length}
+        or coalesce(j.etat_apres ->> 'nom', j.etat_avant ->> 'nom', '') ilike $${parametres.length}
+        or coalesce(j.etat_apres ->> 'numero_contrat', j.etat_avant ->> 'numero_contrat', '') ilike $${parametres.length}
+        or coalesce(j.etat_apres ->> 'nom_original', j.etat_avant ->> 'nom_original', '') ilike $${parametres.length}
+        or coalesce(j.etat_apres ->> 'reference', j.etat_avant ->> 'reference', '') ilike $${parametres.length}
+      )`);
+    }
+
+    parametres.push(limite, offset);
+    const resultat = await requete(
+      `select j.id, j.action, j.table_cible, j.ligne_id, j.etat_avant, j.etat_apres,
+              j.cree_le, j.utilisateur_id, u.nom as utilisateur_nom, u.email as utilisateur_email,
+              count(*) over() as total_elements
+       from journal_audit j
+       left join utilisateurs u on u.id = j.utilisateur_id and u.organisation_id = j.organisation_id
+       where ${conditions.join(' and ')}
+       order by j.cree_le desc
+       limit $${parametres.length - 1} offset $${parametres.length}`,
+      parametres
+    );
+
+    const reponse = reponsePaginee(resultat.rows, page, limite);
+    reponse.donnees = reponse.donnees.map(resumerLigneAudit);
+    res.json(reponse);
+  } catch (erreur) {
+    gererErreur(res, erreur, 'journal-audit.liste');
   }
 });
 

@@ -48,6 +48,15 @@ test('le rôle lecture ne peut pas écrire', async () => {
     .expect(403);
 });
 
+test('le journal global est réservé aux administrateurs', async (t) => {
+  if (!utiliseBaseLocale()) return t.skip('Test de base locale indisponible');
+  const app = require('../src/server');
+  await request(app)
+    .get('/api/journal-audit')
+    .set('Cookie', `jeton=${jeton('agent')}`)
+    .expect(403);
+});
+
 test('le JWT propage l’organisation dans le contexte de la requête', async () => {
   const organisationId = crypto.randomUUID();
   const reponse = await request(applicationPermissions())

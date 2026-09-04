@@ -4,6 +4,7 @@ const { requete, transactionAvecUtilisateur } = require('../db');
 const { exigerConnexion, exigerRole } = require('../auth');
 const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
+const { journaliser, resumerLigneAudit } = require('../audit');
 const stockage = require('../stockage');
 
 const routeur = express.Router();
@@ -142,10 +143,12 @@ routeur.get('/:id', async (req, res) => {
     );
 
     const historique = await requete(
-      `select action, etat_avant, etat_apres, cree_le, utilisateur_id
-       from journal_audit
-       where table_cible = 'contrats' and ligne_id = $1
-       order by cree_le desc
+      `select j.id, j.action, j.table_cible, j.ligne_id, j.etat_avant, j.etat_apres,
+              j.cree_le, j.utilisateur_id, u.nom as utilisateur_nom, u.email as utilisateur_email
+       from journal_audit j
+       left join utilisateurs u on u.id = j.utilisateur_id and u.organisation_id = j.organisation_id
+       where j.table_cible = 'contrats' and j.ligne_id = $1
+       order by j.cree_le desc
        limit 100`,
       [req.params.id]
     );
@@ -162,7 +165,7 @@ routeur.get('/:id', async (req, res) => {
       ...contrat.rows[0],
       echeances: echeances.rows,
       paiements: paiements.rows,
-      historique: historique.rows,
+      historique: historique.rows.map(resumerLigneAudit),
       piecesJointes: piecesJointes.rows,
     });
   } catch (erreur) {
@@ -202,13 +205,23 @@ routeur.post('/:id/pieces-jointes', exigerRole('admin', 'agent'), (req, res) => 
 
       let piece;
       try {
-        piece = await requete(
-          `insert into pieces_jointes_contrats
-             (contrat_id, nom_original, nom_stockage, type_mime, taille_octets, ajoute_par)
-           values ($1, $2, $3, $4, $5, $6)
-           returning id, nom_original, type_mime, taille_octets, ajoute_le`,
-          [req.params.id, req.file.originalname, cleStockage, req.file.mimetype, req.file.size, req.utilisateur.id]
-        );
+        piece = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
+          const resultat = await client.query(
+            `insert into pieces_jointes_contrats
+               (contrat_id, nom_original, nom_stockage, type_mime, taille_octets, ajoute_par)
+             values ($1, $2, $3, $4, $5, $6)
+             returning *`,
+            [req.params.id, req.file.originalname, cleStockage, req.file.mimetype, req.file.size, req.utilisateur.id]
+          );
+          await journaliser(client, {
+            utilisateurId: req.utilisateur.id,
+            action: 'creation',
+            tableCible: 'pieces_jointes_contrats',
+            ligneId: resultat.rows[0].id,
+            etatApres: resultat.rows[0],
+          });
+          return resultat;
+        });
       } catch (erreur) {
         await effacerFichierSiPresent(cleStockage);
         throw erreur;
@@ -247,12 +260,24 @@ routeur.get('/:id/pieces-jointes/:pieceId/telecharger', async (req, res) => {
 
 routeur.delete('/:id/pieces-jointes/:pieceId', exigerRole('admin', 'agent'), async (req, res) => {
   try {
-    const resultat = await requete(
-      `delete from pieces_jointes_contrats
-       where id = $1 and contrat_id = $2
-       returning nom_stockage`,
-      [req.params.pieceId, req.params.id]
-    );
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
+      const piece = await client.query(
+        `delete from pieces_jointes_contrats
+         where id = $1 and contrat_id = $2
+         returning *`,
+        [req.params.pieceId, req.params.id]
+      );
+      if (piece.rowCount > 0) {
+        await journaliser(client, {
+          utilisateurId: req.utilisateur.id,
+          action: 'suppression',
+          tableCible: 'pieces_jointes_contrats',
+          ligneId: piece.rows[0].id,
+          etatAvant: piece.rows[0],
+        });
+      }
+      return piece;
+    });
     if (resultat.rowCount === 0) return res.status(404).json({ erreur: 'Pièce jointe introuvable.' });
     await effacerFichierSiPresent(resultat.rows[0].nom_stockage);
     return res.json({ ok: true });

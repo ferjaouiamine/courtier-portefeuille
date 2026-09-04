@@ -3,6 +3,7 @@ const { requete, transactionAvecUtilisateur } = require('../db');
 const { exigerConnexion, exigerRole } = require('../auth');
 const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
+const { resumerLigneAudit } = require('../audit');
 
 const routeur = express.Router();
 routeur.use(exigerConnexion);
@@ -55,7 +56,23 @@ routeur.get('/:id', async (req, res) => {
 
     const cumul = contrats.rows.reduce((acc, c) => acc + Number(c.prime_totale), 0);
 
-    res.json({ ...client.rows[0], contrats: contrats.rows, cumulPrimes: cumul });
+    const historique = await requete(
+      `select j.id, j.action, j.table_cible, j.ligne_id, j.etat_avant, j.etat_apres,
+              j.cree_le, j.utilisateur_id, u.nom as utilisateur_nom, u.email as utilisateur_email
+       from journal_audit j
+       left join utilisateurs u on u.id = j.utilisateur_id and u.organisation_id = j.organisation_id
+       where j.table_cible = 'clients' and j.ligne_id = $1
+       order by j.cree_le desc
+       limit 100`,
+      [req.params.id]
+    );
+
+    res.json({
+      ...client.rows[0],
+      contrats: contrats.rows,
+      cumulPrimes: cumul,
+      historique: historique.rows.map(resumerLigneAudit),
+    });
   } catch (erreur) {
     gererErreur(res, erreur, 'clients.fiche');
   }

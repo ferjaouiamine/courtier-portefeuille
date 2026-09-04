@@ -35,6 +35,7 @@
         <button data-vue="contrats">Contrats</button>
         <button data-vue="clients">Clients</button>
         <button data-vue="referentiel">Référentiel</button>
+        <button data-vue="journal" id="nav-journal" hidden>Journal</button>
         <button data-vue="corbeille" id="nav-corbeille" hidden>Corbeille</button>
       </nav>
       <div id="zone-utilisateur">
@@ -231,6 +232,51 @@
             <table><tbody id="corps-tableau-produits"></tbody></table>
           </div>
         </div>
+      </section>
+
+      <!-- ----- Journal d'audit ----- -->
+      <section id="vue-journal" class="vue" hidden>
+        <div class="entete-vue"><h2>Journal des activités</h2></div>
+        <div class="barre-filtres">
+          <label>Action
+            <select id="filtre-action-journal">
+              <option value="">Toutes</option>
+              <option value="creation">Ajouts</option>
+              <option value="modification">Modifications</option>
+              <option value="suppression">Archivages</option>
+              <option value="restauration">Restaurations</option>
+              <option value="suppression_definitive">Suppressions définitives</option>
+              <option value="connexion">Connexions</option>
+            </select>
+          </label>
+          <label>Élément
+            <select id="filtre-table-journal">
+              <option value="">Tous</option>
+              <option value="clients">Clients</option>
+              <option value="contrats">Contrats</option>
+              <option value="echeances">Échéances</option>
+              <option value="paiements">Encaissements</option>
+              <option value="relances">Relances</option>
+              <option value="pieces_jointes_contrats">Pièces jointes</option>
+              <option value="compagnies">Compagnies</option>
+              <option value="produits">Produits</option>
+              <option value="utilisateurs">Utilisateurs</option>
+            </select>
+          </label>
+          <label>Recherche
+            <input type="search" id="filtre-recherche-journal" placeholder="Administrateur ou élément" />
+          </label>
+        </div>
+        <div class="carte" style="padding:0">
+          <div class="tableau-responsive">
+            <table id="tableau-journal">
+              <thead><tr><th>Date</th><th>Administrateur</th><th>Action</th><th>Type</th><th>Élément</th><th>Détails</th></tr></thead>
+              <tbody id="corps-tableau-journal"></tbody>
+            </table>
+          </div>
+          <p id="etat-vide-journal" class="etat-vide" hidden>Aucune activité ne correspond à ces filtres.</p>
+        </div>
+        <div id="pagination-journal" class="pagination"></div>
       </section>
 
       <!-- ----- Corbeille ----- -->

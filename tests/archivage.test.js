@@ -93,6 +93,13 @@ test('archiver un client ou contrat masque ses valeurs et la suppression efface 
 
     await administration.query("update contrats set statut = 'resilie' where id = $1", [ids.contrat]);
     await request(app).delete(`/api/clients/${ids.client}`).set('Cookie', cookie).expect(200);
+    const journalApresArchivage = await request(app)
+      .get('/api/journal-audit?table=clients&action=suppression')
+      .set('Cookie', cookie)
+      .expect(200);
+    const traceArchivage = journalApresArchivage.body.donnees.find((ligne) => ligne.ligne_id === ids.client);
+    assert.equal(traceArchivage.utilisateur_nom, 'Admin test');
+    assert.equal(traceArchivage.action, 'suppression');
     const apresArchivageClient = await request(app).get('/api/tableau-de-bord').set('Cookie', cookie).expect(200);
     assert.equal(apresArchivageClient.body.encaissements12Mois.length, 0);
     assert.equal(apresArchivageClient.body.total_contrats, 0);
@@ -111,6 +118,15 @@ test('archiver un client ou contrat masque ses valeurs et la suppression efface 
       .delete(`/api/corbeille/contrats/${ids.contrat}`)
       .set('Cookie', cookie)
       .expect(200);
+
+    const journalApresSuppression = await request(app)
+      .get('/api/journal-audit?table=contrats&action=suppression_definitive')
+      .set('Cookie', cookie)
+      .expect(200);
+    const traceSuppression = journalApresSuppression.body.donnees.find((ligne) => ligne.ligne_id === ids.contrat);
+    assert.equal(traceSuppression.utilisateur_nom, 'Admin test');
+    assert.equal(traceSuppression.action, 'suppression_definitive');
+    assert.equal(traceSuppression.element, `TEST-${ids.contrat}`);
 
     const restes = await administration.query(
       `select
