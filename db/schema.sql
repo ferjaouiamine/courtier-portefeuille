@@ -181,6 +181,42 @@ create trigger trg_calcul_date_echeance_contrat
 before insert or update of date_effet, fractionnement on contrats
 for each row execute function f_calcul_date_echeance_contrat();
 
+-- Garantit la coherence entre la periode contractuelle et la frequence.
+-- Le trigger protege les nouvelles ecritures sans reecrire les imports historiques.
+create or replace function f_verifier_periode_contrat() returns trigger as $$
+declare
+  v_date_fin_attendue date;
+  v_frequence_mois integer;
+begin
+  if new.duree_mois < 1 or new.duree_mois > 120 then
+    raise exception 'La duree du contrat doit etre comprise entre 1 et 120 mois' using errcode = '23514';
+  end if;
+
+  v_frequence_mois := case new.fractionnement
+    when 'trimestriel' then 3
+    when 'semestriel' then 6
+    when 'annuel' then 12
+    else null
+  end;
+  if v_frequence_mois is not null and new.duree_mois < v_frequence_mois then
+    raise exception 'La duree du contrat est inferieure a sa frequence de paiement' using errcode = '23514';
+  end if;
+
+  v_date_fin_attendue := (
+    new.date_effet + make_interval(months => new.duree_mois) - interval '1 day'
+  )::date;
+  if new.date_fin <> v_date_fin_attendue then
+    raise exception 'Date de fin incoherente, date attendue : %', v_date_fin_attendue using errcode = '23514';
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_verifier_periode_contrat on contrats;
+create trigger trg_verifier_periode_contrat
+before insert or update of date_effet, duree_mois, fractionnement, date_fin on contrats
+for each row execute function f_verifier_periode_contrat();
+
 create or replace function f_verifier_organisation_contrat() returns trigger as $$
 begin
   if not exists (select 1 from clients where id = new.client_id and organisation_id = new.organisation_id)
@@ -560,7 +596,7 @@ begin
   values (
     v.numero_contrat, v.client_id, v.souscripteur_id, v.societe_leasing_id, v.societe_leasing, v.payeur_id,
     v.compagnie_id, v.produit_id, v.type_contrat, v.immatriculation,
-    v.date_fin, v.duree_mois, v.fractionnement, v.date_fin + (v.duree_mois || ' months')::interval,
+    v.date_fin + 1, v.duree_mois, v.fractionnement, v.date_fin + (v.duree_mois || ' months')::interval,
     null,
     v.prime_totale, v.com_brute, v.taux_retenue,
     'en_cours', p_contrat_id, p_utilisateur, p_utilisateur

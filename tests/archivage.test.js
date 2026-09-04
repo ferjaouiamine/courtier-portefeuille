@@ -60,7 +60,8 @@ test('archiver un client ou contrat masque ses valeurs et la suppression efface 
       `insert into contrats
         (id, organisation_id, numero_contrat, client_id, souscripteur_id, compagnie_id, produit_id,
          date_effet, duree_mois, fractionnement, date_fin, prime_totale)
-       values ($1, $2, $3, $4, $4, $5, $6, current_date, 12, 'annuel', current_date + 365, 1000)`,
+       values ($1, $2, $3, $4, $4, $5, $6, current_date, 12, 'annuel',
+               (current_date + interval '12 months' - interval '1 day')::date, 1000)`,
       [ids.contrat, ids.organisation, `TEST-${ids.contrat}`, ids.client, ids.compagnie, ids.produit]
     );
     await administration.query(
