@@ -60,41 +60,6 @@ function calculerDateEcheance() {
   $('#contrat-date-echeance').value = `${anneeCible}-${String(moisCible + 1).padStart(2, '0')}-${String(Math.min(jour, dernierJour)).padStart(2, '0')}`;
 }
 
-function calculerDateFinContrat() {
-  const valeur = $('#contrat-date-effet').value;
-  const duree = Number($('#contrat-duree').value);
-  const champDateFin = $('#contrat-date-fin');
-  if (!valeur || !Number.isInteger(duree) || duree < 1 || duree > 120) {
-    champDateFin.value = '';
-    return;
-  }
-
-  const [annee, moisInitial, jour] = valeur.split('-').map(Number);
-  const indexCible = moisInitial - 1 + duree;
-  const anneeCible = annee + Math.floor(indexCible / 12);
-  const moisCible = ((indexCible % 12) + 12) % 12;
-  const dernierJour = new Date(Date.UTC(anneeCible, moisCible + 1, 0)).getUTCDate();
-  const dateFin = new Date(Date.UTC(anneeCible, moisCible, Math.min(jour, dernierJour)));
-  dateFin.setUTCDate(dateFin.getUTCDate() - 1);
-  champDateFin.value = [
-    dateFin.getUTCFullYear(),
-    String(dateFin.getUTCMonth() + 1).padStart(2, '0'),
-    String(dateFin.getUTCDate()).padStart(2, '0'),
-  ].join('-');
-}
-
-function actualiserDatesContrat() {
-  calculerDateFinContrat();
-  calculerDateEcheance();
-  const duree = Number($('#contrat-duree').value);
-  const frequence = { trimestriel: 3, semestriel: 6, annuel: 12 }[$('#contrat-fractionnement').value];
-  $('#contrat-duree').setCustomValidity(
-    frequence && Number.isInteger(duree) && duree < frequence
-      ? `La durée doit être d'au moins ${frequence} mois pour cette fréquence.`
-      : ''
-  );
-}
-
 function parametres(objet) {
   const recherche = new URLSearchParams();
   Object.entries(objet).forEach(([cle, valeur]) => {
@@ -491,7 +456,7 @@ async function ouvrirModaleContrat(contrat = null) {
   };
   Object.entries(champs).forEach(([selecteur, valeur]) => { $(selecteur).value = valeur ?? ''; });
   if (!contrat) $('#contrat-souscripteur').value = $('#contrat-client').value;
-  actualiserDatesContrat();
+  calculerDateEcheance();
   $('#modale-contrat').showModal();
 }
 
@@ -754,9 +719,8 @@ function brancherEvenements() {
     $('#zone-client-date-naissance').hidden = !physique;
     if (!physique) $('#client-date-naissance').value = '';
   });
-  $('#contrat-date-effet').addEventListener('change', actualiserDatesContrat);
-  $('#contrat-duree').addEventListener('input', actualiserDatesContrat);
-  $('#contrat-fractionnement').addEventListener('change', actualiserDatesContrat);
+  $('#contrat-date-effet').addEventListener('change', calculerDateEcheance);
+  $('#contrat-fractionnement').addEventListener('change', calculerDateEcheance);
   $('#contrat-client').addEventListener('change', () => {
     if (!etat.edition.contrat) $('#contrat-souscripteur').value = $('#contrat-client').value;
   });

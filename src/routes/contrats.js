@@ -4,7 +4,6 @@ const { requete, transactionAvecUtilisateur } = require('../db');
 const { exigerConnexion, exigerRole } = require('../auth');
 const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
-const { validerPeriodeContrat } = require('../validation-contrat');
 const stockage = require('../stockage');
 
 const routeur = express.Router();
@@ -270,13 +269,12 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
       dateEffet, dureeMois, fractionnement, dateFin, primeTotale,
     } = req.body || {};
 
-    if (!numeroContrat || !clientId || !compagnieId || !produitId || !dateEffet || !dureeMois || !fractionnement) {
+    if (!numeroContrat || !clientId || !compagnieId || !produitId || !dateEffet || !dureeMois || !fractionnement || !dateFin) {
       return res.status(400).json({ erreur: 'Merci de renseigner tous les champs obligatoires du contrat.' });
     }
     if (!Number.isFinite(Number(primeTotale)) || Number(primeTotale) < 0) {
       return res.status(400).json({ erreur: 'La prime doit être un montant positif ou nul.' });
     }
-    const periode = validerPeriodeContrat({ dateEffet, dureeMois, fractionnement, dateFin });
 
     const contrat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const resultat = await client.query(
@@ -291,7 +289,7 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
           numeroContrat, clientId, souscripteurId || clientId, String(societeLeasing || '').trim() || null,
           payeurId || souscripteurId || clientId,
           compagnieId, produitId, typeContrat || null, immatriculation || null,
-          dateEffet, periode.dureeMois, fractionnement, periode.dateFin, Number(primeTotale), req.utilisateur.id,
+          dateEffet, dureeMois, fractionnement, dateFin, Number(primeTotale), req.utilisateur.id,
         ]
       );
       await client.query('select generer_echeances($1)', [resultat.rows[0].id]);
@@ -312,13 +310,9 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
       dateEffet, dureeMois, fractionnement, dateFin, primeTotale, statut,
     } = req.body || {};
 
-    if (!numeroContrat || !clientId || !compagnieId || !produitId || !dateEffet || !dureeMois || !fractionnement) {
-      return res.status(400).json({ erreur: 'Merci de renseigner tous les champs obligatoires du contrat.' });
-    }
     if (!Number.isFinite(Number(primeTotale)) || Number(primeTotale) < 0) {
       return res.status(400).json({ erreur: 'La prime doit être un montant positif ou nul.' });
     }
-    const periode = validerPeriodeContrat({ dateEffet, dureeMois, fractionnement, dateFin });
 
     const contrat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const resultat = await client.query(
@@ -332,8 +326,8 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
         [
           numeroContrat, clientId, souscripteurId || clientId, String(societeLeasing || '').trim() || null,
           payeurId || souscripteurId || clientId, compagnieId, produitId,
-          typeContrat || null, immatriculation || null, dateEffet, periode.dureeMois, fractionnement,
-          periode.dateFin, Number(primeTotale), statut || null, req.utilisateur.id, req.params.id,
+          typeContrat || null, immatriculation || null, dateEffet, dureeMois, fractionnement,
+          dateFin, Number(primeTotale), statut || null, req.utilisateur.id, req.params.id,
         ]
       );
       if (resultat.rowCount === 0) return null;
