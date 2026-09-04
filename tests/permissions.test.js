@@ -15,6 +15,14 @@ const { Pool } = require('pg');
 
 const ORGANISATION_PRINCIPALE = '00000000-0000-4000-8000-000000000001';
 
+function utiliseBaseLocale() {
+  try {
+    return ['localhost', '127.0.0.1', '::1'].includes(new URL(process.env.DATABASE_URL).hostname);
+  } catch {
+    return false;
+  }
+}
+
 function jeton(role, organisationId = ORGANISATION_PRINCIPALE) {
   return jwt.sign({ id: crypto.randomUUID(), nom: 'Test', role, organisationId }, process.env.JWT_SECRET);
 }
@@ -51,6 +59,7 @@ test('le JWT propage l’organisation dans le contexte de la requête', async ()
 
 test('PostgreSQL isole les clients entre deux organisations', async (t) => {
   if (!process.env.DATABASE_URL) return t.skip('DATABASE_URL absent');
+  if (!utiliseBaseLocale()) return t.skip('Test destructif interdit sur une base distante');
 
   const organisationB = crypto.randomUUID();
   const nomMarqueur = `CLIENT-ISOLATION-${crypto.randomUUID()}`;

@@ -2,6 +2,7 @@ const express = require('express');
 const { requete, transactionAvecUtilisateur } = require('../db');
 const { exigerConnexion, exigerRole } = require('../auth');
 const { gererErreur } = require('../erreurs');
+const stockage = require('../stockage');
 
 const routeur = express.Router();
 routeur.use(exigerConnexion);
@@ -186,6 +187,107 @@ routeur.get('/corbeille', exigerRole('admin'), async (req, res) => {
   }
 });
 
+routeur.delete('/corbeille/:table/:id', exigerRole('admin'), async (req, res) => {
+  const { table, id } = req.params;
+  const tablesAutorisees = ['clients', 'contrats', 'compagnies', 'produits'];
+  if (!tablesAutorisees.includes(table)) {
+    return res.status(400).json({ erreur: 'Type de contenu invalide.' });
+  }
+
+  try {
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
+      if (table === 'contrats') {
+        const contrat = await client.query(
+          'select id from contrats where id = $1 and supprime_le is not null for update',
+          [id]
+        );
+        if (contrat.rowCount === 0) return { introuvable: true };
+
+        const renouvellements = await client.query(
+          'select count(*)::int as total from contrats where contrat_precedent = $1',
+          [id]
+        );
+        if (renouvellements.rows[0].total > 0) {
+          return { bloque: 'Ce contrat est lié à un renouvellement. Supprimez d’abord les contrats suivants.' };
+        }
+
+        const pieces = await client.query(
+          'select nom_stockage from pieces_jointes_contrats where contrat_id = $1',
+          [id]
+        );
+
+        await client.query(
+          `delete from journal_audit
+           where (table_cible = 'contrats' and ligne_id = $1)
+              or (table_cible = 'echeances' and ligne_id in (select id from echeances where contrat_id = $1))
+              or (table_cible = 'paiements' and ligne_id in (
+                    select p.id from paiements p join echeances e on e.id = p.echeance_id where e.contrat_id = $1
+                  ))
+              or (table_cible = 'relances' and ligne_id in (
+                    select r.id from relances r join echeances e on e.id = r.echeance_id where e.contrat_id = $1
+                  ))`,
+          [id]
+        );
+        await client.query(
+          'delete from relances where echeance_id in (select id from echeances where contrat_id = $1)',
+          [id]
+        );
+        await client.query(
+          'delete from paiements where echeance_id in (select id from echeances where contrat_id = $1)',
+          [id]
+        );
+        await client.query('delete from pieces_jointes_contrats where contrat_id = $1', [id]);
+        await client.query('delete from echeances where contrat_id = $1', [id]);
+        await client.query('delete from contrats where id = $1', [id]);
+        return { clesStockage: pieces.rows.map((piece) => piece.nom_stockage) };
+      }
+
+      const references = table === 'clients'
+        ? await client.query(
+          `select count(*)::int as total from contrats
+           where client_id = $1 or souscripteur_id = $1 or societe_leasing_id = $1 or payeur_id = $1`,
+          [id]
+        )
+        : await client.query(
+          `select count(*)::int as total from contrats
+           where ${table === 'compagnies' ? 'compagnie_id' : 'produit_id'} = $1`,
+          [id]
+        );
+      if (references.rows[0].total > 0) {
+        return { bloque: `Suppression impossible : ${references.rows[0].total} contrat(s) utilisent encore cet élément.` };
+      }
+
+      const element = await client.query(
+        `select id from ${table} where id = $1 and supprime_le is not null for update`,
+        [id]
+      );
+      if (element.rowCount === 0) return { introuvable: true };
+
+      await client.query('delete from journal_audit where table_cible = $1 and ligne_id = $2', [table, id]);
+      await client.query(`delete from ${table} where id = $1`, [id]);
+      return {};
+    });
+
+    if (resultat.introuvable) {
+      return res.status(404).json({ erreur: "Cet élément n'est pas dans la corbeille." });
+    }
+    if (resultat.bloque) {
+      return res.status(409).json({ erreur: resultat.bloque });
+    }
+
+    const suppressions = await Promise.allSettled(
+      (resultat.clesStockage || []).map((cle) => stockage.supprimer(cle))
+    );
+    const fichiersNonSupprimes = suppressions.filter((operation) => operation.status === 'rejected').length;
+    if (fichiersNonSupprimes > 0) {
+      console.error(`[corbeille.suppression-fichiers] ${fichiersNonSupprimes} fichier(s) non supprimé(s)`);
+    }
+    res.json({ ok: true, fichiersNonSupprimes });
+  } catch (erreur) {
+    gererErreur(res, erreur, 'corbeille.suppression-definitive');
+  }
+});
+
 // =====================================================================
 // Tableau de bord
 // =====================================================================
@@ -210,8 +312,10 @@ routeur.get('/tableau-de-bord', async (req, res) => {
       `),
       requete(`
         select to_char(date_trunc('month', date_paiement), 'YYYY-MM') as mois, coalesce(sum(montant), 0) as total
-        from paiements
-        where supprime_le is null and date_paiement >= date_trunc('month', current_date) - interval '11 months'
+        from paiements p
+        join echeances e on e.id = p.echeance_id and e.supprime_le is null
+        join contrats c on c.id = e.contrat_id and c.supprime_le is null
+        where p.supprime_le is null and date_paiement >= date_trunc('month', current_date) - interval '11 months'
         group by 1 order by 1
       `),
       requete(`

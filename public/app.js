@@ -412,7 +412,10 @@ async function chargerCorbeille() {
   const lignes = await api('/api/corbeille');
   $('#corps-tableau-corbeille').innerHTML = lignes.map((ligne) => `<tr><td>${echapper(ligne.table_source)}</td>
     <td>${echapper(ligne.libelle)}</td><td>${formaterDate(ligne.supprime_le, true)}</td>
-    <td><button type="button" data-action="restaurer" data-table="${echapper(ligne.table_source)}" data-id="${ligne.id}">Restaurer</button></td></tr>`).join('');
+    <td><div class="actions-ligne">
+      <button type="button" data-action="restaurer" data-table="${echapper(ligne.table_source)}" data-id="${ligne.id}">Restaurer</button>
+      <button type="button" class="danger" data-action="supprimer-definitivement" data-table="${echapper(ligne.table_source)}" data-id="${ligne.id}">Supprimer définitivement</button>
+    </div></td></tr>`).join('');
   $('#etat-vide-corbeille').hidden = lignes.length > 0;
 }
 
@@ -554,6 +557,11 @@ async function actionDeleguee(event) {
       await chargerReferentiel();
     } else if (action === 'restaurer') {
       await api(`/api/${bouton.dataset.table}/${id}/restaurer`, { method: 'POST' });
+      etat.compagnies = []; etat.produits = []; etat.clients = [];
+      await chargerCorbeille();
+    } else if (action === 'supprimer-definitivement'
+      && window.confirm('Supprimer définitivement cet élément ? Cette action est irréversible.')) {
+      await api(`/api/corbeille/${bouton.dataset.table}/${id}`, { method: 'DELETE' });
       etat.compagnies = []; etat.produits = []; etat.clients = [];
       await chargerCorbeille();
     }
