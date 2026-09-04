@@ -11,10 +11,11 @@ const routeur = express.Router();
 routeur.use(exigerConnexion);
 
 const TYPES_PIECES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
+const TAILLE_MAX_PIECE = 4 * 1024 * 1024;
 
 const televerserPiece = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  limits: { fileSize: TAILLE_MAX_PIECE, files: 1 },
   fileFilter: (req, fichier, callback) => {
     if (TYPES_PIECES.has(fichier.mimetype)) return callback(null, true);
     const erreur = new Error('Seuls les fichiers PDF, JPG et PNG sont acceptés.');
@@ -177,7 +178,7 @@ routeur.post('/:id/pieces-jointes', exigerRole('admin', 'agent'), (req, res) => 
   televerserPiece.single('fichier')(req, res, async (erreurTeleversement) => {
     if (erreurTeleversement) {
       const message = erreurTeleversement.code === 'LIMIT_FILE_SIZE'
-        ? 'Le fichier dépasse la taille maximale de 10 Mo.'
+        ? 'Le fichier dépasse la taille maximale de 4 Mo.'
         : erreurTeleversement.message;
       return res.status(400).json({ erreur: message });
     }

@@ -597,6 +597,7 @@ async function actionDeleguee(event) {
     } else if (action === 'televerser-piece-jointe') {
       const fichier = $('#piece-jointe-fichier')?.files[0];
       if (!fichier) throw new Error('Sélectionnez un fichier PDF, JPG ou PNG.');
+      if (fichier.size > 4 * 1024 * 1024) throw new Error('Le fichier dépasse la taille maximale de 4 Mo.');
       const formulaire = new FormData();
       formulaire.append('fichier', fichier);
       bouton.disabled = true;
