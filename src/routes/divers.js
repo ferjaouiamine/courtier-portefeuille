@@ -318,7 +318,9 @@ routeur.get('/tableau-de-bord', async (req, res) => {
         join echeances e on e.id = p.echeance_id and e.supprime_le is null
         join contrats c on c.id = e.contrat_id and c.supprime_le is null
         join clients cl on cl.id = c.client_id and cl.supprime_le is null
-        where p.supprime_le is null and date_paiement >= date_trunc('month', current_date) - interval '11 months'
+        where p.supprime_le is null
+          and p.date_paiement >= date_trunc('month', current_date) - interval '11 months'
+          and p.date_paiement <= current_date
         group by 1 order by 1
       `),
       requete(`

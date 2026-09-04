@@ -74,6 +74,11 @@ test('archiver un client ou contrat masque ses valeurs et la suppression efface 
        values ($1, $2, 321.123, 'virement', current_date)`,
       [ids.organisation, ids.echeance]
     );
+    await administration.query(
+      `insert into paiements (organisation_id, echeance_id, montant, mode_paiement, date_paiement)
+       values ($1, $2, 50, 'virement', current_date + 10)`,
+      [ids.organisation, ids.echeance]
+    );
 
     const token = jwt.sign({
       id: ids.utilisateur,
