@@ -119,6 +119,237 @@ function debounce(fonction, delai = 300) {
   };
 }
 
+const composantsSelect = new WeakMap();
+let composantSelectOuvert = null;
+
+function normaliserRechercheSelect(valeur) {
+  return String(valeur || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('fr');
+}
+
+function libelleDuSelect(select) {
+  const option = select.options[select.selectedIndex];
+  return option ? option.textContent.trim() : '';
+}
+
+function rendreSelectRecherchable(select) {
+  if (composantsSelect.has(select)) return;
+
+  const conteneur = document.createElement('div');
+  conteneur.className = 'select-recherchable';
+
+  const saisie = document.createElement('input');
+  saisie.type = 'text';
+  saisie.className = 'select-recherche-saisie';
+  saisie.autocomplete = 'off';
+  saisie.spellcheck = false;
+  saisie.setAttribute('role', 'combobox');
+  saisie.setAttribute('aria-autocomplete', 'list');
+  saisie.setAttribute('aria-expanded', 'false');
+
+  const liste = document.createElement('div');
+  liste.className = 'select-recherche-options';
+  liste.id = `liste-${select.id || Math.random().toString(36).slice(2)}`;
+  liste.setAttribute('role', 'listbox');
+  liste.setAttribute('popover', 'manual');
+  liste.hidden = true;
+  saisie.setAttribute('aria-controls', liste.id);
+
+  const label = select.closest('label');
+  const texteLabel = label
+    ? [...label.childNodes].find((noeud) => noeud.nodeType === Node.TEXT_NODE)?.textContent.trim()
+    : '';
+  saisie.setAttribute('aria-label', `${texteLabel || 'Liste'} : rechercher une option`);
+
+  select.parentNode.insertBefore(conteneur, select);
+  conteneur.append(saisie, select);
+  document.body.append(liste);
+  select.classList.add('select-recherche-source');
+  select.tabIndex = -1;
+  select.setAttribute('aria-hidden', 'true');
+
+  const composant = {
+    select, conteneur, saisie, liste, optionsVisibles: [], indexActif: -1, ouvert: false,
+  };
+  composantsSelect.set(select, composant);
+
+  function positionnerListe() {
+    if (!composant.ouvert) return;
+    const rectangle = saisie.getBoundingClientRect();
+    const marge = 8;
+    liste.style.width = `${rectangle.width}px`;
+    liste.style.maxHeight = `${Math.min(260, window.innerHeight - 2 * marge)}px`;
+    const hauteur = Math.min(liste.scrollHeight, 260);
+    const placeDessous = window.innerHeight - rectangle.bottom - marge;
+    const placeDessus = rectangle.top - marge;
+    const ouvrirDessus = placeDessous < Math.min(hauteur, 180) && placeDessus > placeDessous;
+    const haut = ouvrirDessus
+      ? Math.max(marge, rectangle.top - hauteur - 4)
+      : Math.min(window.innerHeight - hauteur - marge, rectangle.bottom + 4);
+    liste.style.left = `${Math.max(marge, Math.min(rectangle.left, window.innerWidth - rectangle.width - marge))}px`;
+    liste.style.top = `${Math.max(marge, haut)}px`;
+  }
+  composant.positionnerListe = positionnerListe;
+
+  function definirOptionActive(index) {
+    if (!composant.optionsVisibles.length) {
+      composant.indexActif = -1;
+      saisie.removeAttribute('aria-activedescendant');
+      return;
+    }
+    composant.indexActif = Math.max(0, Math.min(index, composant.optionsVisibles.length - 1));
+    $$('.select-recherche-option', liste).forEach((element, numero) => {
+      const actif = numero === composant.indexActif;
+      element.classList.toggle('actif', actif);
+      if (actif) {
+        saisie.setAttribute('aria-activedescendant', element.id);
+        element.scrollIntoView({ block: 'nearest' });
+      }
+    });
+  }
+
+  function choisirOption(option) {
+    if (!option) return;
+    select.value = option.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    fermerSelectRecherchable(composant);
+  }
+
+  function afficherOptions(recherche = '') {
+    const terme = normaliserRechercheSelect(recherche.trim());
+    composant.optionsVisibles = [...select.options].filter((option) => (
+      !option.disabled && normaliserRechercheSelect(option.textContent).includes(terme)
+    ));
+    liste.replaceChildren();
+
+    if (!composant.optionsVisibles.length) {
+      const vide = document.createElement('p');
+      vide.className = 'select-recherche-vide';
+      vide.textContent = 'Aucun résultat';
+      liste.append(vide);
+      definirOptionActive(-1);
+      positionnerListe();
+      return;
+    }
+
+    composant.optionsVisibles.forEach((option, index) => {
+      const bouton = document.createElement('button');
+      bouton.type = 'button';
+      bouton.className = 'select-recherche-option';
+      bouton.id = `${liste.id}-option-${index}`;
+      bouton.setAttribute('role', 'option');
+      bouton.setAttribute('aria-selected', String(option.value === select.value));
+      bouton.dataset.value = option.value;
+      bouton.textContent = option.textContent.trim();
+      bouton.addEventListener('mouseenter', () => definirOptionActive(index));
+      bouton.addEventListener('click', () => choisirOption(option));
+      liste.append(bouton);
+    });
+
+    const indexSelectionne = composant.optionsVisibles.findIndex((option) => option.value === select.value);
+    definirOptionActive(indexSelectionne >= 0 ? indexSelectionne : 0);
+    positionnerListe();
+  }
+
+  function ouvrirSelectRecherchable(reinitialiserRecherche = true) {
+    if (composant.ouvert || select.disabled) return;
+    if (composantSelectOuvert) fermerSelectRecherchable(composantSelectOuvert);
+    composantSelectOuvert = composant;
+    composant.ouvert = true;
+    if (reinitialiserRecherche) saisie.value = '';
+    saisie.setAttribute('aria-expanded', 'true');
+    liste.hidden = false;
+    if (typeof liste.showPopover === 'function') {
+      try { liste.showPopover(); } catch (_) { /* navigateur sans prise en charge complète */ }
+    }
+    afficherOptions(saisie.value);
+  }
+
+  saisie.addEventListener('focus', ouvrirSelectRecherchable);
+  saisie.addEventListener('click', ouvrirSelectRecherchable);
+  saisie.addEventListener('input', () => {
+    if (!composant.ouvert) ouvrirSelectRecherchable(false);
+    afficherOptions(saisie.value);
+  });
+  saisie.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!composant.ouvert) ouvrirSelectRecherchable();
+      const direction = event.key === 'ArrowDown' ? 1 : -1;
+      definirOptionActive(composant.indexActif + direction);
+    } else if (event.key === 'Enter' && composant.ouvert) {
+      event.preventDefault();
+      choisirOption(composant.optionsVisibles[composant.indexActif]);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      fermerSelectRecherchable(composant);
+    } else if (event.key === 'Tab') {
+      fermerSelectRecherchable(composant);
+    }
+  });
+
+  select.addEventListener('change', () => synchroniserSelectRecherchable(select));
+  new MutationObserver(() => synchroniserSelectRecherchable(select)).observe(select, {
+    childList: true, subtree: true, attributes: true,
+  });
+  if (select.form) {
+    select.form.addEventListener('reset', () => setTimeout(() => synchroniserSelectRecherchable(select)));
+  }
+  synchroniserSelectRecherchable(select);
+}
+
+function fermerSelectRecherchable(composant = composantSelectOuvert) {
+  if (!composant?.ouvert) return;
+  composant.ouvert = false;
+  composant.saisie.value = libelleDuSelect(composant.select);
+  composant.saisie.setAttribute('aria-expanded', 'false');
+  composant.saisie.removeAttribute('aria-activedescendant');
+  if (typeof composant.liste.hidePopover === 'function') {
+    try { composant.liste.hidePopover(); } catch (_) { /* déjà fermé */ }
+  }
+  composant.liste.hidden = true;
+  if (composantSelectOuvert === composant) composantSelectOuvert = null;
+}
+
+function synchroniserSelectRecherchable(select) {
+  const composant = composantsSelect.get(select);
+  if (!composant) return;
+  composant.saisie.disabled = select.disabled;
+  if (!composant.ouvert) composant.saisie.value = libelleDuSelect(select);
+  else {
+    const optionSelectionnee = $('.select-recherche-option[aria-selected="true"]', composant.liste);
+    if (optionSelectionnee) optionSelectionnee.setAttribute('aria-selected', 'false');
+    const nouvelle = $$('.select-recherche-option', composant.liste)
+      .find((option) => option.dataset.value === select.value);
+    if (nouvelle) nouvelle.setAttribute('aria-selected', 'true');
+  }
+}
+
+function synchroniserTousLesSelects() {
+  $$('select').forEach((select) => synchroniserSelectRecherchable(select));
+}
+
+function initialiserSelectsRecherchables() {
+  $$('select').forEach(rendreSelectRecherchable);
+  document.addEventListener('click', (event) => {
+    if (!composantSelectOuvert) return;
+    const { conteneur, liste } = composantSelectOuvert;
+    if (!conteneur.contains(event.target) && !liste.contains(event.target)) {
+      fermerSelectRecherchable(composantSelectOuvert);
+    }
+  });
+  window.addEventListener('resize', () => {
+    composantSelectOuvert?.positionnerListe();
+  });
+  document.addEventListener('scroll', (event) => {
+    if (composantSelectOuvert && !composantSelectOuvert.liste.contains(event.target)) {
+      composantSelectOuvert.positionnerListe();
+    }
+  }, true);
+}
+
 function peutEcrire() {
   return etat.utilisateur?.role !== 'lecture';
 }
@@ -209,6 +440,7 @@ function remplirSelect(selecteur, lignes, texte, conserver = true) {
   select.innerHTML = premiere + lignes.map((ligne) =>
     `<option value="${echapper(ligne.id)}">${echapper(texte(ligne))}</option>`).join('');
   if ([...select.options].some((option) => option.value === valeur)) select.value = valeur;
+  synchroniserSelectRecherchable(select);
 }
 
 async function chargerReferentiels(force = false) {
@@ -226,6 +458,7 @@ async function chargerReferentiels(force = false) {
   select.innerHTML = '<option value="">Toutes</option>' + etat.compagnies.map((x) =>
     `<option value="${echapper(x.nom)}">${echapper(x.nom)}</option>`).join('');
   select.value = valeur;
+  synchroniserSelectRecherchable(select);
 }
 
 async function chargerClientsPourSelect() {
@@ -513,6 +746,7 @@ function ouvrirModaleClient(client = null) {
   $('#client-date-naissance').value = client?.date_naissance?.slice(0, 10) || '';
   $('#client-date-naissance').max = new Date().toISOString().slice(0, 10);
   $('#zone-client-date-naissance').hidden = $('#client-type').value !== 'personne_physique';
+  synchroniserTousLesSelects();
   $('#modale-client').showModal();
 }
 
@@ -535,6 +769,7 @@ async function ouvrirModaleContrat(contrat = null) {
   Object.entries(champs).forEach(([selecteur, valeur]) => { $(selecteur).value = valeur ?? ''; });
   if (!contrat) $('#contrat-souscripteur').value = $('#contrat-client').value;
   calculerDateEcheance();
+  synchroniserTousLesSelects();
   $('#modale-contrat').showModal();
 }
 
@@ -551,6 +786,7 @@ function ouvrirModaleProduit(produit = null) {
   $('#titre-modale-produit').textContent = produit ? 'Modifier le produit' : 'Nouveau produit';
   $('#produit-nom').value = produit?.nom || '';
   $('#produit-branche').value = produit?.branche || 'AUTO';
+  synchroniserTousLesSelects();
   $('#modale-produit').showModal();
 }
 
@@ -811,12 +1047,16 @@ function brancherEvenements() {
   $('#contrat-date-effet').addEventListener('change', calculerDateEcheance);
   $('#contrat-fractionnement').addEventListener('change', calculerDateEcheance);
   $('#contrat-client').addEventListener('change', () => {
-    if (!etat.edition.contrat) $('#contrat-souscripteur').value = $('#contrat-client').value;
+    if (!etat.edition.contrat) {
+      $('#contrat-souscripteur').value = $('#contrat-client').value;
+      synchroniserSelectRecherchable($('#contrat-souscripteur'));
+    }
   });
   brancherFormulaires();
 }
 
 async function initialiser() {
+  initialiserSelectsRecherchables();
   brancherEvenements();
   try {
     etat.utilisateur = await api('/api/auth/moi');
