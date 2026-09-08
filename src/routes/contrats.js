@@ -6,6 +6,7 @@ const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
 const { journaliser, resumerLigneAudit } = require('../audit');
 const stockage = require('../stockage');
+const { calculerDateFin } = require('../dates-contrat');
 
 const routeur = express.Router();
 routeur.use(exigerConnexion);
@@ -34,7 +35,7 @@ async function effacerFichierSiPresent(cleStockage) {
 
 const TRIS_AUTORISES = {
   date_effet: 'c.date_effet',
-  date_fin: 'c.date_fin',
+  duree_mois: 'c.duree_mois',
   prime_totale: 'c.prime_totale',
   client_nom: 'cl.nom',
   numero_contrat: 'c.numero_contrat',
@@ -72,7 +73,7 @@ routeur.get('/', async (req, res) => {
 
     parametres.push(limite, offset);
     const resultat = await requete(
-      `select c.id, c.numero_contrat, c.statut, c.date_effet, c.date_fin, c.fractionnement,
+      `select c.id, c.numero_contrat, c.statut, c.date_effet, c.date_fin, c.duree_mois, c.fractionnement,
               c.prime_totale,
               cl.id as client_id, cl.nom as client_nom, cl.telephone as client_telephone,
               s.id as souscripteur_id, s.nom as souscripteur_nom,
@@ -292,15 +293,16 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
     const {
       numeroContrat, clientId, souscripteurId, societeLeasing, payeurId,
       compagnieId, produitId, typeContrat, immatriculation,
-      dateEffet, dureeMois, fractionnement, dateFin, primeTotale,
+      dateEffet, dureeMois, fractionnement, primeTotale,
     } = req.body || {};
 
-    if (!numeroContrat || !clientId || !compagnieId || !produitId || !dateEffet || !dureeMois || !fractionnement || !dateFin) {
+    if (!numeroContrat || !clientId || !compagnieId || !produitId || !dateEffet || !dureeMois || !fractionnement) {
       return res.status(400).json({ erreur: 'Merci de renseigner tous les champs obligatoires du contrat.' });
     }
     if (!Number.isFinite(Number(primeTotale)) || Number(primeTotale) < 0) {
       return res.status(400).json({ erreur: 'La prime doit être un montant positif ou nul.' });
     }
+    const dateFinCalculee = calculerDateFin(dateEffet, dureeMois);
 
     const contrat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const resultat = await client.query(
@@ -315,7 +317,7 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
           numeroContrat, clientId, souscripteurId || clientId, String(societeLeasing || '').trim() || null,
           payeurId || souscripteurId || clientId,
           compagnieId, produitId, typeContrat || null, immatriculation || null,
-          dateEffet, dureeMois, fractionnement, dateFin, Number(primeTotale), req.utilisateur.id,
+          dateEffet, Number(dureeMois), fractionnement, dateFinCalculee, Number(primeTotale), req.utilisateur.id,
         ]
       );
       await client.query('select generer_echeances($1)', [resultat.rows[0].id]);
@@ -333,12 +335,13 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
     const {
       numeroContrat, clientId, souscripteurId, societeLeasing, payeurId,
       compagnieId, produitId, typeContrat, immatriculation,
-      dateEffet, dureeMois, fractionnement, dateFin, primeTotale, statut,
+      dateEffet, dureeMois, fractionnement, primeTotale, statut,
     } = req.body || {};
 
     if (!Number.isFinite(Number(primeTotale)) || Number(primeTotale) < 0) {
       return res.status(400).json({ erreur: 'La prime doit être un montant positif ou nul.' });
     }
+    const dateFinCalculee = calculerDateFin(dateEffet, dureeMois);
 
     const contrat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const resultat = await client.query(
@@ -352,8 +355,8 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
         [
           numeroContrat, clientId, souscripteurId || clientId, String(societeLeasing || '').trim() || null,
           payeurId || souscripteurId || clientId, compagnieId, produitId,
-          typeContrat || null, immatriculation || null, dateEffet, dureeMois, fractionnement,
-          dateFin, Number(primeTotale), statut || null, req.utilisateur.id, req.params.id,
+          typeContrat || null, immatriculation || null, dateEffet, Number(dureeMois), fractionnement,
+          dateFinCalculee, Number(primeTotale), statut || null, req.utilisateur.id, req.params.id,
         ]
       );
       if (resultat.rowCount === 0) return null;
@@ -412,9 +415,48 @@ routeur.post('/:id/restaurer', exigerRole('admin'), async (req, res) => {
 routeur.post('/:id/renouveler', exigerRole('admin', 'agent'), async (req, res) => {
   try {
     const nouveauId = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
-      const resultat = await client.query('select renouveler_contrat($1, $2) as id', [req.params.id, req.utilisateur.id]);
-      return resultat.rows[0].id;
+      const precedent = await client.query(
+        'select * from contrats where id = $1 and supprime_le is null for update',
+        [req.params.id]
+      );
+      if (precedent.rowCount === 0) return null;
+
+      const contrat = precedent.rows[0];
+      const nouvelleDateEffet = calculerDateFin(contrat.date_effet, contrat.duree_mois);
+      const nouvelleDateFin = calculerDateFin(nouvelleDateEffet, contrat.duree_mois);
+      const nouveau = await client.query(
+        `insert into contrats (
+           numero_contrat, client_id, souscripteur_id, societe_leasing_id, societe_leasing, payeur_id,
+           compagnie_id, produit_id, type_contrat, immatriculation,
+           date_effet, duree_mois, fractionnement, date_fin,
+           prime_totale, com_brute, taux_retenue,
+           statut, contrat_precedent, cree_par, modifie_par
+         ) values (
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+           $11, $12, $13, $14, $15, $16, $17, 'en_cours', $18, $19, $19
+         ) returning id`,
+        [
+          contrat.numero_contrat, contrat.client_id, contrat.souscripteur_id,
+          contrat.societe_leasing_id, contrat.societe_leasing, contrat.payeur_id,
+          contrat.compagnie_id, contrat.produit_id, contrat.type_contrat, contrat.immatriculation,
+          nouvelleDateEffet, contrat.duree_mois, contrat.fractionnement, nouvelleDateFin,
+          contrat.prime_totale, contrat.com_brute, contrat.taux_retenue,
+          contrat.id, req.utilisateur.id,
+        ]
+      );
+      await client.query(
+        "update contrats set statut = 'renouvele', modifie_par = $1, modifie_le = now() where id = $2",
+        [req.utilisateur.id, contrat.id]
+      );
+      await client.query(
+        "update echeances set statut = 'payee' where contrat_id = $1 and type_echeance = 'renouvellement'",
+        [contrat.id]
+      );
+      await client.query('select generer_echeances($1)', [nouveau.rows[0].id]);
+      return nouveau.rows[0].id;
     });
+
+    if (!nouveauId) return res.status(404).json({ erreur: 'Contrat introuvable ou archivé.' });
 
     const nouveauContrat = await requete('select * from contrats where id = $1', [nouveauId]);
     res.status(201).json(nouveauContrat.rows[0]);

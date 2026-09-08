@@ -456,7 +456,7 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
 
     const resultat = await requete(
       `select c.numero_contrat, cl.nom as client_nom, cp.nom as compagnie_nom, pr.nom as produit_nom,
-              c.statut, c.date_effet, c.date_fin, c.fractionnement,
+              c.statut, c.date_effet, c.duree_mois, c.fractionnement,
               c.prime_totale
        from contrats c
        join clients cl on cl.id = c.client_id
@@ -469,7 +469,7 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
 
     const entetes = [
       'Numéro de contrat', 'Client', 'Compagnie', 'Produit', 'Statut',
-      "Date d'effet", 'Date de fin', 'Fractionnement',
+      "Date d'effet", 'Durée du contrat (mois)', 'Fractionnement',
       'Prime totale',
     ];
 
@@ -482,7 +482,7 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
         echapperCsv(ligne.produit_nom),
         echapperCsv(ligne.statut),
         formaterDateCsv(ligne.date_effet),
-        formaterDateCsv(ligne.date_fin),
+        echapperCsv(ligne.duree_mois),
         echapperCsv(ligne.fractionnement),
         formaterMontantCsv(ligne.prime_totale),
       ].join(';'));

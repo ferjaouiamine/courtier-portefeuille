@@ -18,6 +18,7 @@ règlements (non importées automatiquement, voir plus bas).
 import re
 import sys
 import uuid
+from calendar import monthrange
 from datetime import date, datetime
 from pathlib import Path
 
@@ -121,6 +122,14 @@ def parser_duree_mois(valeur, anomalies, contexte):
     return 12
 
 
+def ajouter_mois(date_initiale, nombre_mois):
+    index_cible = date_initiale.month - 1 + nombre_mois
+    annee = date_initiale.year + index_cible // 12
+    mois = index_cible % 12 + 1
+    jour = min(date_initiale.day, monthrange(annee, mois)[1])
+    return date(annee, mois, jour)
+
+
 def normaliser_fractionnement(valeur, anomalies, contexte):
     texte = (normaliser_texte(valeur) or '').upper()
     if texte in FRACTIONNEMENTS_VALIDES:
@@ -210,7 +219,7 @@ def extraire(lignes):
         date_effet = parser_date(valeurs[8], anomalies, f"{contexte} (date d'effet)")
         duree_mois = parser_duree_mois(valeurs[9], anomalies, f"{contexte} (durée)")
         fractionnement = normaliser_fractionnement(valeurs[10], anomalies, f"{contexte} (fractionnement)")
-        date_fin = parser_date(valeurs[11], anomalies, f"{contexte} (date fin)")
+        date_fin_source = parser_date(valeurs[11], anomalies, f"{contexte} (ancienne date fin)")
         prime_totale = normaliser_montant(valeurs[13], anomalies, f"{contexte} (prime totale)")
         com_brute = normaliser_montant(valeurs[14], anomalies, f"{contexte} (commission brute)")
         retenue_montant = normaliser_montant(valeurs[15], anomalies, f"{contexte} (retenue)")
@@ -221,21 +230,11 @@ def extraire(lignes):
             )
             continue
 
-        if not date_fin:
-            date_fin = date(date_effet.year + max(1, round(duree_mois / 12)), date_effet.month, date_effet.day)
-            anomalies.append(f"{contexte} : date de fin manquante, recalculée à partir de la durée.")
-        elif date_fin <= date_effet:
+        date_fin = ajouter_mois(date_effet, duree_mois)
+        if date_fin_source and date_fin_source != date_fin:
             anomalies.append(
-                f"{contexte} : date de fin ({date_fin}) antérieure ou égale à la date d'effet "
-                f"({date_effet}) — ligne conservée telle quelle, à vérifier manuellement."
-            )
-
-        ecart_duree_jours = abs((date_fin - date_effet).days - duree_mois * 30)
-        if ecart_duree_jours > 60:
-            anomalies.append(
-                f"{contexte} : la durée déclarée ({duree_mois} mois) et l'écart entre date d'effet "
-                f"et date de fin ({(date_fin - date_effet).days} jours) sont incohérents — "
-                "valeurs conservées telles quelles, à vérifier manuellement."
+                f"{contexte} : l'ancienne date de fin ({date_fin_source}) est ignorée ; "
+                f"la durée de {duree_mois} mois donne automatiquement {date_fin}."
             )
 
         taux_retenue = round(retenue_montant / com_brute, 4) if com_brute > 0 else 0.10

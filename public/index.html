@@ -165,7 +165,7 @@
           <label>Tri
             <select id="filtre-tri-contrat">
               <option value="date_effet">Date d'effet</option>
-              <option value="date_fin">Date de fin</option>
+              <option value="duree_mois">Durée</option>
               <option value="prime_totale">Prime totale</option>
               <option value="client_nom">Client</option>
             </select>
@@ -176,7 +176,7 @@
             <thead>
               <tr>
                 <th>N° contrat</th><th>Client</th><th>Compagnie</th><th>Produit</th>
-                <th>Effet</th><th>Fin</th><th>Prime</th><th>Statut</th>
+                <th>Effet</th><th>Durée</th><th>Prime</th><th>Statut</th>
               </tr>
             </thead>
             <tbody id="corps-tableau-contrats"></tbody>
@@ -374,11 +374,8 @@
         <label>Date d'effet
           <input type="date" id="contrat-date-effet" required />
         </label>
-        <label>Durée (mois)
-          <input type="number" id="contrat-duree" min="1" required />
-        </label>
-        <label>Date de fin
-          <input type="date" id="contrat-date-fin" required />
+        <label>Durée du contrat (mois)
+          <input type="number" id="contrat-duree" min="1" max="1200" step="1" required />
         </label>
         <label>Date d'échéance calculée
           <input type="date" id="contrat-date-echeance" readonly />

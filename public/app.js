@@ -591,7 +591,7 @@ async function chargerContrats() {
   $('#corps-tableau-contrats').innerHTML = lignes.map((ligne) => `<tr data-contrat-id="${echapper(ligne.id)}">
     <td>${echapper(ligne.numero_contrat)}</td><td>${echapper(ligne.client_nom)}</td>
     <td>${echapper(ligne.compagnie_nom)}</td><td>${echapper(ligne.produit_nom)}</td>
-    <td>${formaterDate(ligne.date_effet)}</td><td>${formaterDate(ligne.date_fin)}</td>
+    <td>${formaterDate(ligne.date_effet)}</td><td>${echapper(ligne.duree_mois)} mois</td>
     <td>${formaterMontant(ligne.prime_totale)}</td><td>${echapper(libelleCode(ligne.statut))}</td></tr>`).join('');
   $('#etat-vide-contrats').hidden = lignes.length > 0;
   afficherPagination('contrats', resultat.pagination);
@@ -633,7 +633,8 @@ async function ouvrirFicheContrat(id) {
     <div>Société de leasing<div class="valeur">${echapper(contrat.societe_leasing_nom || 'Aucune')}</div></div>
     <div>Payeur<div class="valeur">${echapper(contrat.payeur_nom || contrat.souscripteur_nom || contrat.client_nom)}</div></div></div>
     <div class="carte fiche-cumuls"><div>Prime totale<div class="valeur">${formaterMontant(contrat.prime_totale)}</div></div>
-    <div>Période<div class="valeur">${formaterDate(contrat.date_effet)} – ${formaterDate(contrat.date_fin)}</div></div>
+    <div>Date d'effet<div class="valeur">${formaterDate(contrat.date_effet)}</div></div>
+    <div>Durée du contrat<div class="valeur">${echapper(contrat.duree_mois)} mois</div></div>
     <div>Statut<div class="valeur">${echapper(libelleCode(contrat.statut))}</div></div></div>
     <div class="carte"><div class="entete-section"><h3>Pièces jointes du contrat</h3>${ajoutPieceJointe}</div>
     ${piecesJointes ? `<ul class="liste-pieces-jointes">${piecesJointes}</ul>` : '<p class="etat-vide">Aucune pièce jointe.</p>'}</div>
@@ -762,7 +763,7 @@ async function ouvrirModaleContrat(contrat = null) {
     '#contrat-compagnie': contrat?.compagnie_id, '#contrat-produit': contrat?.produit_id,
     '#contrat-immatriculation': contrat?.immatriculation,
     '#contrat-date-effet': contrat?.date_effet?.slice(0, 10), '#contrat-duree': contrat?.duree_mois || 12,
-    '#contrat-fractionnement': contrat?.fractionnement || 'annuel', '#contrat-date-fin': contrat?.date_fin?.slice(0, 10),
+    '#contrat-fractionnement': contrat?.fractionnement || 'annuel',
     '#contrat-date-echeance': contrat?.date_echeance?.slice(0, 10),
     '#contrat-prime': contrat?.prime_totale,
   };
@@ -917,7 +918,7 @@ function brancherFormulaires() {
         compagnieId: $('#contrat-compagnie').value, produitId: $('#contrat-produit').value,
         immatriculation: $('#contrat-immatriculation').value.trim(),
         dateEffet: $('#contrat-date-effet').value, dureeMois: Number($('#contrat-duree').value),
-        fractionnement: $('#contrat-fractionnement').value, dateFin: $('#contrat-date-fin').value,
+        fractionnement: $('#contrat-fractionnement').value,
         primeTotale: Number($('#contrat-prime').value),
       };
       const contrat = await api(id ? `/api/contrats/${id}` : '/api/contrats', {

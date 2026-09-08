@@ -119,7 +119,7 @@ create table if not exists contrats (
   type_contrat      text,
   immatriculation   text,
   date_effet        date not null,
-  duree_mois        integer not null check (duree_mois > 0),
+  duree_mois        integer not null check (duree_mois between 1 and 1200),
   fractionnement    text not null check (fractionnement in
                       ('annuel', 'semestriel', 'trimestriel', 'prime_unique')),
   date_fin          date not null,
@@ -163,6 +163,21 @@ alter table contrats drop constraint if exists contrats_fractionnement_check;
 alter table contrats add constraint contrats_fractionnement_check check (
   fractionnement in ('annuel', 'semestriel', 'trimestriel', 'prime_unique')
 );
+alter table contrats drop constraint if exists contrats_duree_mois_check;
+alter table contrats add constraint contrats_duree_mois_check check (duree_mois between 1 and 1200);
+
+-- La date de fin est une donnée technique dérivée, jamais une saisie utilisateur.
+create or replace function f_calcul_date_fin_contrat() returns trigger as $$
+begin
+  new.date_fin := (new.date_effet + make_interval(months => new.duree_mois))::date;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_calcul_date_fin_contrat on contrats;
+create trigger trg_calcul_date_fin_contrat
+before insert or update of date_effet, duree_mois on contrats
+for each row execute function f_calcul_date_fin_contrat();
 
 create or replace function f_calcul_date_echeance_contrat() returns trigger as $$
 begin
@@ -560,7 +575,9 @@ begin
   values (
     v.numero_contrat, v.client_id, v.souscripteur_id, v.societe_leasing_id, v.societe_leasing, v.payeur_id,
     v.compagnie_id, v.produit_id, v.type_contrat, v.immatriculation,
-    v.date_fin, v.duree_mois, v.fractionnement, v.date_fin + (v.duree_mois || ' months')::interval,
+    (v.date_effet + make_interval(months => v.duree_mois))::date,
+    v.duree_mois, v.fractionnement,
+    (v.date_effet + make_interval(months => v.duree_mois * 2))::date,
     null,
     v.prime_totale, v.com_brute, v.taux_retenue,
     'en_cours', p_contrat_id, p_utilisateur, p_utilisateur
