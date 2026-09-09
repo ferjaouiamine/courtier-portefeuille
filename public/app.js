@@ -165,7 +165,8 @@ function rendreSelectRecherchable(select) {
 
   select.parentNode.insertBefore(conteneur, select);
   conteneur.append(saisie, select);
-  document.body.append(liste);
+  // Un element hors d'un dialog modal devient inerte et ne recoit plus les clics.
+  (select.closest('dialog') || document.body).append(liste);
   select.classList.add('select-recherche-source');
   select.tabIndex = -1;
   select.setAttribute('aria-hidden', 'true');
