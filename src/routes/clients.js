@@ -47,7 +47,19 @@ routeur.get('/:id', async (req, res) => {
     const contrats = await requete(
       `select vp.contrat_id as id, vp.numero_contrat, vp.statut, vp.date_effet, vp.date_fin,
               vp.prime_totale, vp.compagnie_nom, vp.produit_nom,
-              (select count(*)::int from pieces_jointes_contrats p where p.contrat_id = vp.contrat_id) as nombre_pieces
+              (select count(*)::int from pieces_jointes_contrats p where p.contrat_id = vp.contrat_id) as nombre_pieces,
+              coalesce((
+                select jsonb_agg(jsonb_build_object(
+                  'date_echeance', e.date_echeance,
+                  'montant_prime', e.montant_prime,
+                  'statut', case
+                    when e.statut = 'a_venir' and e.date_echeance < current_date then 'impayee'
+                    else e.statut
+                  end
+                ) order by e.date_echeance, e.numero_terme)
+                from echeances e
+                where e.contrat_id = vp.contrat_id and e.supprime_le is null
+              ), '[]'::jsonb) as echeances
        from v_portefeuille vp
        where vp.client_id = $1 or vp.souscripteur_id = $1 or vp.societe_leasing_id = $1 or vp.payeur_id = $1
        order by date_effet desc`,

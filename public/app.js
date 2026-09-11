@@ -55,6 +55,19 @@ function libelleTypeDuree(contrat) {
     : 'Renouvelable par tacite reconduction (RTR)';
 }
 
+function libelleStatutEcheance(statut) {
+  return {
+    a_venir: 'À venir',
+    partielle: 'Partielle',
+    payee: 'Payée',
+    impayee: 'Impayée',
+  }[statut] || libelleCode(statut);
+}
+
+function etiquetteStatutEcheance(statut) {
+  return `<span class="etiquette-statut-echeance ${echapper(statut)}">${echapper(libelleStatutEcheance(statut))}</span>`;
+}
+
 const ACTIONS_AUDIT = {
   creation: 'Ajout',
   modification: 'Modification',
@@ -656,7 +669,7 @@ async function ouvrirFicheContrat(id) {
     <button type="button" class="danger" data-action="archiver-contrat">Archiver</button></div>` : '';
   const echeances = contrat.echeances.map((ligne) => `<tr><td>${formaterDate(ligne.date_echeance)}</td>
     <td>${formaterMontant(ligne.montant_prime)}</td>
-    <td>${echapper(libelleCode(ligne.statut))}</td></tr>`).join('');
+    <td>${etiquetteStatutEcheance(ligne.statut)}</td></tr>`).join('');
   const paiements = contrat.paiements.map((ligne) => `<tr><td>${formaterDate(ligne.date_paiement)}</td>
     <td>${formaterMontant(ligne.montant)}</td><td>${echapper(libelleCode(ligne.mode_paiement))}</td>
     <td>${echapper(ligne.reference || '—')}</td></tr>`).join('');
@@ -687,7 +700,9 @@ async function ouvrirFicheContrat(id) {
     <div>Statut<div class="valeur">${echapper(libelleCode(contrat.statut))}</div></div></div>
     <div class="carte"><div class="entete-section"><h3>Pièces jointes du contrat</h3>${ajoutPieceJointe}</div>
     ${piecesJointes ? `<ul class="liste-pieces-jointes">${piecesJointes}</ul>` : '<p class="etat-vide">Aucune pièce jointe.</p>'}</div>
-    <div class="carte"><h3>Échéancier</h3><table><thead><tr><th>Date</th><th>Montant</th><th>Statut</th></tr></thead><tbody>${echeances}</tbody></table></div>
+    <div class="carte"><h3>Échéancier complet</h3>${echeances
+      ? `<div class="tableau-responsive"><table><thead><tr><th>Date</th><th>Montant</th><th>Statut</th></tr></thead><tbody>${echeances}</tbody></table></div>`
+      : '<p class="etat-vide">Aucune échéance pour ce contrat.</p>'}</div>
     <div class="carte"><h3>Paiements</h3>${paiements ? `<table><thead><tr><th>Date</th><th>Montant</th><th>Mode</th><th>Référence</th></tr></thead><tbody>${paiements}</tbody></table>` : '<p class="etat-vide">Aucun paiement.</p>'}</div>
     <div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>`;
   await changerVue('fiche-contrat');
@@ -715,10 +730,18 @@ async function ouvrirFicheClient(id) {
   etat.clientId = client.id;
   const actions = peutEcrire() ? `<div class="actions-ligne"><button type="button" data-action="modifier-client">Modifier</button>
     <button type="button" class="danger" data-action="archiver-client">Supprimer</button></div>` : '';
-  const contrats = client.contrats.map((ligne) => `<tr data-contrat-id="${echapper(ligne.id)}"><td>${echapper(ligne.numero_contrat)}</td>
+  const contrats = client.contrats.map((ligne) => {
+    const echeances = (ligne.echeances || []).map((echeance) => `<span class="resume-echeance">
+      <span>${formaterDate(echeance.date_echeance)}</span>
+      <span>${formaterMontant(echeance.montant_prime)}</span>
+      ${etiquetteStatutEcheance(echeance.statut)}
+    </span>`).join('');
+    return `<tr data-contrat-id="${echapper(ligne.id)}"><td>${echapper(ligne.numero_contrat)}</td>
     <td>${echapper(ligne.compagnie_nom)}</td><td>${echapper(ligne.produit_nom)}</td><td>${formaterDate(ligne.date_effet)}</td>
     <td>${formaterMontant(ligne.prime_totale)}</td><td>${echapper(libelleCode(ligne.statut))}</td>
-    <td>${Number(ligne.nombre_pieces) || 0}</td></tr>`).join('');
+    <td><div class="liste-echeances-contrat">${echeances || '<span class="texte-secondaire">Aucune échéance</span>'}</div></td>
+    <td>${Number(ligne.nombre_pieces) || 0}</td></tr>`;
+  }).join('');
   const historique = (client.historique || []).map((ligne) => `<div class="entree-historique">
     <span class="date">${formaterDate(ligne.cree_le, true)}</span>
     <span><strong>${echapper(ACTIONS_AUDIT[ligne.action] || libelleCode(ligne.action))}</strong>
@@ -730,7 +753,7 @@ async function ouvrirFicheClient(id) {
     <div>Téléphone<div class="valeur">${client.telephone ? `<a href="tel:${echapper(client.telephone)}">${echapper(client.telephone)}</a>` : '—'}</div></div>
     <div>Date de naissance<div class="valeur">${formaterDate(client.date_naissance)}</div></div>
     <div>Code Finasure<div class="valeur">${echapper(client.code_client_finasure || '—')}</div></div></div>
-    <div class="carte"><h3>Contrats</h3>${contrats ? `<table><thead><tr><th>N° contrat</th><th>Compagnie</th><th>Produit</th><th>Effet</th><th>Prime</th><th>Statut</th><th>Documents</th></tr></thead><tbody>${contrats}</tbody></table>` : '<p class="etat-vide">Aucun contrat.</p>'}</div>
+    <div class="carte"><h3>Contrats et échéances</h3>${contrats ? `<div class="tableau-responsive"><table><thead><tr><th>N° contrat</th><th>Compagnie</th><th>Produit</th><th>Effet</th><th>Prime</th><th>Statut</th><th>Échéances</th><th>Documents</th></tr></thead><tbody>${contrats}</tbody></table></div>` : '<p class="etat-vide">Aucun contrat.</p>'}</div>
     <div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>`;
   await changerVue('fiche-client');
 }
