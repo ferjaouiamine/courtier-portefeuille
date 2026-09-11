@@ -507,14 +507,16 @@ $$;
 -- =====================================================================
 -- Fonction : génération de l'échéancier d'un contrat
 --
--- Conserve les termes payés et maintient un seul prochain terme actif.
+-- Conserve les termes payés et maintient les dix prochains termes actifs.
 -- La date reste ancrée sur la date d'effet pour éviter les dérives de fin de mois.
 -- =====================================================================
 
 create or replace function generer_echeances(p_contrat_id uuid) returns void as $$
 declare
   v contrats%rowtype;
-  v_numero_terme integer;
+  v_dernier_numero integer;
+  v_numeros_payes integer[];
+  v_numeros_cibles integer[];
   v_mois integer;
 begin
   select * into v from contrats where id = p_contrat_id;
@@ -541,28 +543,42 @@ begin
     when 'annuel' then 12
   end;
 
-  select coalesce(max(numero_terme), 0) + 1 into v_numero_terme
+  select coalesce(max(numero_terme), 0),
+         coalesce(array_agg(numero_terme) filter (where statut = 'payee'), '{}'::integer[])
+  into v_dernier_numero, v_numeros_payes
   from echeances
-  where contrat_id = p_contrat_id and type_echeance = 'terme' and statut = 'payee';
+  where contrat_id = p_contrat_id and type_echeance = 'terme';
+
+  select array_agg(numero order by numero) into v_numeros_cibles
+  from (
+    select numero
+    from generate_series(1, greatest(v_dernier_numero + 10, 10)) as termes(numero)
+    where not (numero = any(v_numeros_payes))
+    order by numero
+    limit 10
+  ) cibles;
 
   update echeances set supprime_le = coalesce(supprime_le, now())
   where contrat_id = p_contrat_id and type_echeance = 'terme'
-    and numero_terme <> v_numero_terme
+    and not (numero_terme = any(v_numeros_cibles))
     and statut not in ('payee', 'partielle') and supprime_le is null;
 
   insert into echeances (contrat_id, type_echeance, numero_terme, date_echeance, montant_prime, montant_commission)
-  values (
-    p_contrat_id, 'terme', v_numero_terme,
-    (v.date_effet + make_interval(months => v_mois * v_numero_terme))::date,
-    v.prime_totale, v.com_brute
-  )
+  select p_contrat_id, 'terme', numero,
+         (v.date_effet + make_interval(months => v_mois * numero))::date,
+         v.prime_totale, v.com_brute
+  from unnest(v_numeros_cibles) as termes(numero)
   on conflict (contrat_id, numero_terme, type_echeance) do update
     set date_echeance = excluded.date_echeance,
         montant_prime = excluded.montant_prime,
         montant_commission = excluded.montant_commission,
         supprime_le = null,
         supprime_par = null
-    where echeances.statut not in ('payee', 'partielle');
+    where echeances.statut not in ('payee', 'partielle')
+      and (echeances.date_echeance is distinct from excluded.date_echeance
+        or echeances.montant_prime is distinct from excluded.montant_prime
+        or echeances.montant_commission is distinct from excluded.montant_commission
+        or echeances.supprime_le is not null);
 end;
 $$ language plpgsql;
 

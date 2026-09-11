@@ -3,7 +3,7 @@ const { requete, transactionAvecUtilisateur } = require('../db');
 const { exigerConnexion, exigerRole } = require('../auth');
 const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
-const { synchroniserProchaineEcheance } = require('../echeancier');
+const { completerTousLesEcheanciers, synchroniserProchaineEcheance } = require('../echeancier');
 
 const routeur = express.Router();
 routeur.use(exigerConnexion);
@@ -54,6 +54,18 @@ routeur.get('/', async (req, res) => {
     res.json(reponsePaginee(resultat.rows, page, limite));
   } catch (erreur) {
     gererErreur(res, erreur, 'echeances.agenda');
+  }
+});
+
+// Maintient dix termes futurs sur tous les contrats RTR de l'organisation.
+routeur.post('/completer', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const modifications = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
+      completerTousLesEcheanciers(client)
+    );
+    res.json({ ok: true, modifications });
+  } catch (erreur) {
+    gererErreur(res, erreur, 'echeances.completion');
   }
 });
 

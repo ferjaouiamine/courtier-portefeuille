@@ -9,6 +9,7 @@ const etat = {
   contratId: null,
   clientId: null,
   echeanceId: null,
+  echeanciersCompletes: false,
   edition: {},
   pages: { echeances: 1, contrats: 1, clients: 1, journal: 1 },
 };
@@ -407,6 +408,7 @@ function peutEcrire() {
 
 function afficherConnexion() {
   etat.utilisateur = null;
+  etat.echeanciersCompletes = false;
   $('#app').hidden = true;
   $('#vue-connexion').hidden = false;
 }
@@ -523,6 +525,12 @@ async function chargerReferentiels(force = false) {
   synchroniserSelectRecherchable(select);
 }
 
+async function completerEcheanciers() {
+  if (!peutEcrire() || etat.echeanciersCompletes) return;
+  await api('/api/echeances/completer', { method: 'POST' });
+  etat.echeanciersCompletes = true;
+}
+
 async function chargerClientsPourSelect() {
   const resultat = await api('/api/clients?limite=100');
   etat.clients = resultat.donnees;
@@ -558,6 +566,7 @@ function repartitionHtml(lignes, cleNom, cleMontant) {
 }
 
 async function chargerTableauDeBord() {
+  await completerEcheanciers();
   const donnees = await api('/api/tableau-de-bord');
   const statistiques = [
     ['Total contrats', donnees.total_contrats],
@@ -613,6 +622,7 @@ function filtresEcheances() {
 }
 
 async function chargerEcheances() {
+  await completerEcheanciers();
   await chargerReferentiels();
   const resultat = await api(`/api/echeances?${parametres({
     ...filtresEcheances(), page: etat.pages.echeances, limite: 50,

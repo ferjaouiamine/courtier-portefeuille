@@ -2,7 +2,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { calculerDateTerme, synchroniserProchaineEcheance } = require('../src/echeancier');
+const {
+  NOMBRE_ECHEANCES_FUTURES,
+  calculerDateTerme,
+  completerTousLesEcheanciers,
+  synchroniserProchaineEcheance,
+} = require('../src/echeancier');
 
 test('chaque prochain terme reste ancré sur la date d’effet', () => {
   assert.equal(calculerDateTerme('2026-01-31', 'trimestriel', 1), '2026-04-30');
@@ -15,17 +20,16 @@ test('une prime unique ne produit aucun terme suivant', () => {
   assert.equal(calculerDateTerme('2026-01-31', 'prime_unique', 1), null);
 });
 
-test('le terme suivant est créé après le dernier terme payé', async () => {
+test('dix termes futurs sont maintenus après le dernier terme payé', async () => {
   const requetes = [];
   const client = {
     async query(texte, parametres) {
       requetes.push({ texte, parametres });
-      if (texte.includes('coalesce(max(numero_terme)')) return { rows: [{ numero: 1 }] };
-      if (texte.includes('insert into echeances')) {
-        return {
-          rowCount: 1,
-          rows: [{ numero_terme: parametres[1], date_echeance: parametres[2] }],
-        };
+      if (texte.includes('coalesce(max(numero_terme)')) {
+        return { rows: [{ dernier_numero: 1, numeros_payes: [1] }] };
+      }
+      if (texte.includes('numero_terme = $2')) {
+        return { rows: [{ numero_terme: parametres[1], date_echeance: '2026-07-31' }] };
       }
       return { rowCount: 1, rows: [] };
     },
@@ -43,7 +47,48 @@ test('le terme suivant est créé après le dernier terme payé', async () => {
   assert.equal(prochaine.numero_terme, 2);
   assert.equal(prochaine.date_echeance, '2026-07-31');
   const insertion = requetes.find((requete) => requete.texte.includes('insert into echeances'));
-  assert.deepEqual(insertion.parametres.slice(0, 4), ['contrat-1', 2, '2026-07-31', '900.000']);
+  assert.deepEqual(insertion.parametres[1], [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  assert.equal(insertion.parametres[2].length, NOMBRE_ECHEANCES_FUTURES);
+  assert.equal(insertion.parametres[2][0], '2026-07-31');
+  assert.equal(insertion.parametres[2][9], '2028-10-31');
+  assert.equal(insertion.parametres[3], '900.000');
+});
+
+test('la complétion globale utilise une seule requête et renvoie son bilan', async () => {
+  let texteExecute = '';
+  const modifications = await completerTousLesEcheanciers({
+    query: async (texte) => {
+      texteExecute = texte;
+      return { rows: [{ modifications: 24 }] };
+    },
+  });
+
+  assert.equal(modifications, 24);
+  assert.match(texteExecute, /greatest\(e\.dernier_numero \+ 10, 10\)/);
+  assert.match(texteExecute, /not c\.echeancier_personnalise/);
+});
+
+test('un paiement hors ordre ne masque pas les termes antérieurs encore dus', async () => {
+  let numerosInseres;
+  const client = {
+    async query(texte, parametres) {
+      if (texte.includes('coalesce(max(numero_terme)')) {
+        return { rows: [{ dernier_numero: 10, numeros_payes: [5] }] };
+      }
+      if (texte.includes('insert into echeances')) numerosInseres = parametres[1];
+      if (texte.includes('numero_terme = $2')) {
+        return { rows: [{ numero_terme: parametres[1], date_echeance: '2026-04-30' }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  await synchroniserProchaineEcheance(client, {
+    id: 'contrat-2', date_effet: '2026-01-31', fractionnement: 'trimestriel',
+    prime_totale: '900.000', com_brute: '0', echeancier_personnalise: false,
+  });
+
+  assert.deepEqual(numerosInseres, [1, 2, 3, 4, 6, 7, 8, 9, 10, 11]);
 });
 
 test('un échéancier personnalisé n’est jamais prolongé automatiquement', async () => {
