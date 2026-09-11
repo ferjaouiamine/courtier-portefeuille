@@ -45,6 +45,16 @@ function libelleCode(valeur) {
   return String(valeur ?? '—').replaceAll('_', ' ');
 }
 
+function typeDureeContrat(contrat) {
+  return contrat?.type_duree || (contrat?.fractionnement === 'prime_unique' ? 'ferme' : 'rtr');
+}
+
+function libelleTypeDuree(contrat) {
+  return typeDureeContrat(contrat) === 'ferme'
+    ? 'Durée ferme'
+    : 'Renouvelable par tacite reconduction (RTR)';
+}
+
 const ACTIONS_AUDIT = {
   creation: 'Ajout',
   modification: 'Modification',
@@ -101,6 +111,17 @@ function calculerDateEcheance() {
   const moisCible = ((indexCible % 12) + 12) % 12;
   const dernierJour = new Date(Date.UTC(anneeCible, moisCible + 1, 0)).getUTCDate();
   $('#contrat-date-echeance').value = `${anneeCible}-${String(moisCible + 1).padStart(2, '0')}-${String(Math.min(jour, dernierJour)).padStart(2, '0')}`;
+}
+
+function appliquerReglesDureeContrat() {
+  const dureeFerme = $('#contrat-type-duree').value === 'ferme';
+  const fractionnement = $('#contrat-fractionnement');
+  if (dureeFerme) fractionnement.value = 'prime_unique';
+  else if (fractionnement.value === 'prime_unique') fractionnement.value = 'annuel';
+  $('#zone-contrat-fractionnement').hidden = dureeFerme;
+  $('#zone-contrat-date-echeance').hidden = dureeFerme;
+  synchroniserSelectRecherchable(fractionnement);
+  calculerDateEcheance();
 }
 
 function parametres(objet) {
@@ -546,7 +567,6 @@ function filtresEcheances() {
   return {
     fenetre: $('#filtre-fenetre').value,
     niveau: $('#filtre-niveau').value,
-    type_echeance: $('#filtre-type-echeance').value,
     compagnie_nom: $('#filtre-compagnie-echeance').value,
     recherche: $('#filtre-recherche-echeance').value.trim(),
   };
@@ -563,11 +583,9 @@ async function chargerEcheances() {
     <td><span class="etiquette-niveau ${echapper(ligne.niveau)}">${echapper(libelleCode(ligne.niveau))}</span></td>
     <td>${echapper(ligne.client_nom)}${ligne.client_telephone ? `<br><a href="tel:${echapper(ligne.client_telephone)}">${echapper(ligne.client_telephone)}</a>` : ''}</td>
     <td>${echapper(ligne.numero_contrat)}</td><td>${echapper(ligne.compagnie_nom)}</td>
-    <td>${echapper(libelleCode(ligne.type_echeance))}</td><td>${formaterMontant(ligne.montant_prime)}</td>
-    <td>${formaterMontant(ligne.montant_regle)}</td><td>${echapper(libelleCode(ligne.statut))}</td>
+    <td>${formaterMontant(ligne.montant_prime)}</td><td>${echapper(libelleCode(ligne.statut))}</td>
     <td><div class="actions-ligne"${peutEcrire() ? '' : ' hidden'}>
       ${ligne.type_echeance === 'terme' ? `<button type="button" data-action="encaisser" data-id="${echapper(ligne.echeance_id)}" data-solde="${Math.max(0, Number(ligne.montant_prime) - Number(ligne.montant_regle))}">Encaisser</button>` : ''}
-      <button type="button" data-action="relancer" data-id="${echapper(ligne.echeance_id)}">Relancer</button>
     </div></td></tr>`).join('');
   $('#etat-vide-echeances').hidden = lignes.length > 0;
   afficherPagination('echeances', resultat.pagination);
@@ -592,7 +610,7 @@ async function chargerContrats() {
   $('#corps-tableau-contrats').innerHTML = lignes.map((ligne) => `<tr data-contrat-id="${echapper(ligne.id)}">
     <td>${echapper(ligne.numero_contrat)}</td><td>${echapper(ligne.client_nom)}</td>
     <td>${echapper(ligne.compagnie_nom)}</td><td>${echapper(ligne.produit_nom)}</td>
-    <td>${formaterDate(ligne.date_effet)}</td><td>${echapper(ligne.duree_mois)} mois</td>
+    <td>${formaterDate(ligne.date_effet)}</td><td>${echapper(libelleTypeDuree(ligne))}</td>
     <td>${formaterMontant(ligne.prime_totale)}</td><td>${echapper(libelleCode(ligne.statut))}</td></tr>`).join('');
   $('#etat-vide-contrats').hidden = lignes.length > 0;
   afficherPagination('contrats', resultat.pagination);
@@ -604,11 +622,10 @@ async function ouvrirFicheContrat(id) {
   etat.contratId = contrat.id;
   const actions = peutEcrire() ? `<div class="actions-ligne">
     <button type="button" data-action="modifier-contrat">Modifier</button>
-    ${contrat.statut === 'en_cours' ? '<button type="button" data-action="renouveler-contrat">Renouveler</button>' : ''}
+    ${contrat.statut === 'en_cours' && typeDureeContrat(contrat) === 'rtr' ? '<button type="button" data-action="renouveler-contrat">Renouveler</button>' : ''}
     <button type="button" class="danger" data-action="archiver-contrat">Archiver</button></div>` : '';
   const echeances = contrat.echeances.map((ligne) => `<tr><td>${formaterDate(ligne.date_echeance)}</td>
-    <td>${echapper(libelleCode(ligne.type_echeance))}${ligne.numero_terme ? ` ${echapper(ligne.numero_terme)}` : ''}</td>
-    <td>${formaterMontant(ligne.montant_prime)}</td><td>${formaterMontant(ligne.montant_regle)}</td>
+    <td>${formaterMontant(ligne.montant_prime)}</td>
     <td>${echapper(libelleCode(ligne.statut))}</td></tr>`).join('');
   const paiements = contrat.paiements.map((ligne) => `<tr><td>${formaterDate(ligne.date_paiement)}</td>
     <td>${formaterMontant(ligne.montant)}</td><td>${echapper(libelleCode(ligne.mode_paiement))}</td>
@@ -635,11 +652,11 @@ async function ouvrirFicheContrat(id) {
     <div>Payeur<div class="valeur">${echapper(contrat.payeur_nom || contrat.souscripteur_nom || contrat.client_nom)}</div></div></div>
     <div class="carte fiche-cumuls"><div>Prime totale<div class="valeur">${formaterMontant(contrat.prime_totale)}</div></div>
     <div>Date d'effet<div class="valeur">${formaterDate(contrat.date_effet)}</div></div>
-    <div>Durée du contrat<div class="valeur">${echapper(contrat.duree_mois)} mois</div></div>
+    <div>Durée du contrat<div class="valeur">${echapper(libelleTypeDuree(contrat))}</div></div>
     <div>Statut<div class="valeur">${echapper(libelleCode(contrat.statut))}</div></div></div>
     <div class="carte"><div class="entete-section"><h3>Pièces jointes du contrat</h3>${ajoutPieceJointe}</div>
     ${piecesJointes ? `<ul class="liste-pieces-jointes">${piecesJointes}</ul>` : '<p class="etat-vide">Aucune pièce jointe.</p>'}</div>
-    <div class="carte"><h3>Échéancier</h3><table><thead><tr><th>Date</th><th>Type</th><th>Montant</th><th>Réglé</th><th>Statut</th></tr></thead><tbody>${echeances}</tbody></table></div>
+    <div class="carte"><h3>Échéancier</h3><table><thead><tr><th>Date</th><th>Montant</th><th>Statut</th></tr></thead><tbody>${echeances}</tbody></table></div>
     <div class="carte"><h3>Paiements</h3>${paiements ? `<table><thead><tr><th>Date</th><th>Montant</th><th>Mode</th><th>Référence</th></tr></thead><tbody>${paiements}</tbody></table>` : '<p class="etat-vide">Aucun paiement.</p>'}</div>
     <div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>`;
   await changerVue('fiche-contrat');
@@ -764,13 +781,14 @@ async function ouvrirModaleContrat(contrat = null) {
     '#contrat-compagnie': contrat?.compagnie_id, '#contrat-produit': contrat?.produit_id,
     '#contrat-immatriculation': contrat?.immatriculation,
     '#contrat-date-effet': contrat?.date_effet?.slice(0, 10), '#contrat-duree': contrat?.duree_mois || 12,
+    '#contrat-type-duree': typeDureeContrat(contrat),
     '#contrat-fractionnement': contrat?.fractionnement || 'annuel',
     '#contrat-date-echeance': contrat?.date_echeance?.slice(0, 10),
     '#contrat-prime': contrat?.prime_totale,
   };
   Object.entries(champs).forEach(([selecteur, valeur]) => { $(selecteur).value = valeur ?? ''; });
   if (!contrat) $('#contrat-souscripteur').value = $('#contrat-client').value;
-  calculerDateEcheance();
+  appliquerReglesDureeContrat();
   synchroniserTousLesSelects();
   $('#modale-contrat').showModal();
 }
@@ -919,6 +937,7 @@ function brancherFormulaires() {
         compagnieId: $('#contrat-compagnie').value, produitId: $('#contrat-produit').value,
         immatriculation: $('#contrat-immatriculation').value.trim(),
         dateEffet: $('#contrat-date-effet').value, dureeMois: Number($('#contrat-duree').value),
+        typeDuree: $('#contrat-type-duree').value,
         fractionnement: $('#contrat-fractionnement').value,
         primeTotale: Number($('#contrat-prime').value),
       };
@@ -1006,7 +1025,7 @@ function brancherEvenements() {
   $$('dialog').forEach((dialogue) => dialogue.addEventListener('click', (event) => {
     if (event.target === dialogue) dialogue.close();
   }));
-  ['#filtre-fenetre', '#filtre-niveau', '#filtre-type-echeance', '#filtre-compagnie-echeance']
+  ['#filtre-fenetre', '#filtre-niveau', '#filtre-compagnie-echeance']
     .forEach((id) => $(id).addEventListener('change', () => {
       etat.pages.echeances = 1;
       chargerEcheances().catch((e) => afficherErreur(e.message));
@@ -1048,6 +1067,7 @@ function brancherEvenements() {
   });
   $('#contrat-date-effet').addEventListener('change', calculerDateEcheance);
   $('#contrat-fractionnement').addEventListener('change', calculerDateEcheance);
+  $('#contrat-type-duree').addEventListener('change', appliquerReglesDureeContrat);
   $('#contrat-client').addEventListener('change', () => {
     if (!etat.edition.contrat) {
       $('#contrat-souscripteur').value = $('#contrat-client').value;

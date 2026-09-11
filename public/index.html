@@ -105,13 +105,6 @@
               <option value="a_jour">À jour</option>
             </select>
           </label>
-          <label>Type
-            <select id="filtre-type-echeance">
-              <option value="">Tous</option>
-              <option value="terme">Terme de prime</option>
-              <option value="renouvellement">Renouvellement</option>
-            </select>
-          </label>
           <label>Compagnie
             <select id="filtre-compagnie-echeance"><option value="">Toutes</option></select>
           </label>
@@ -124,7 +117,7 @@
             <thead>
               <tr>
                 <th>Échéance</th><th>Urgence</th><th>Client</th><th>Contrat</th><th>Compagnie</th>
-                <th>Type</th><th>Montant</th><th>Réglé</th><th>Statut</th><th>Actions</th>
+                <th>Montant</th><th>Statut</th><th>Actions</th>
               </tr>
             </thead>
             <tbody id="corps-tableau-echeances"></tbody>
@@ -165,7 +158,7 @@
           <label>Tri
             <select id="filtre-tri-contrat">
               <option value="date_effet">Date d'effet</option>
-              <option value="duree_mois">Durée</option>
+              <option value="type_duree">Durée</option>
               <option value="prime_totale">Prime totale</option>
               <option value="client_nom">Client</option>
             </select>
@@ -360,12 +353,18 @@
         <label>Produit
           <select id="contrat-produit" required></select>
         </label>
-        <label>Fréquence de paiement
+        <label>Durée du contrat
+          <select id="contrat-type-duree" required>
+            <option value="ferme">Durée ferme</option>
+            <option value="rtr">Renouvelable par tacite reconduction (RTR)</option>
+          </select>
+        </label>
+        <label id="zone-contrat-fractionnement">Fréquence de paiement
           <select id="contrat-fractionnement" required>
-            <option value="annuel">12 mois</option>
-            <option value="semestriel">6 mois</option>
-            <option value="trimestriel">3 mois</option>
-            <option value="prime_unique">Prime unique</option>
+            <option value="annuel">Annuelle (12 mois)</option>
+            <option value="semestriel">Semestrielle (6 mois)</option>
+            <option value="trimestriel">Trimestrielle (3 mois)</option>
+            <option value="prime_unique" hidden disabled>Prime unique</option>
           </select>
         </label>
         <label>Immatriculation
@@ -374,10 +373,8 @@
         <label>Date d'effet
           <input type="date" id="contrat-date-effet" required />
         </label>
-        <label>Durée du contrat (mois)
-          <input type="number" id="contrat-duree" min="1" max="1200" step="1" required />
-        </label>
-        <label>Date d'échéance calculée
+        <input type="hidden" id="contrat-duree" value="12" />
+        <label id="zone-contrat-date-echeance">Date d'échéance calculée
           <input type="date" id="contrat-date-echeance" readonly />
         </label>
         <label>Prime totale (DT)

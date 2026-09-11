@@ -119,7 +119,7 @@ create table if not exists contrats (
   type_contrat      text,
   immatriculation   text,
   date_effet        date not null,
-  duree_mois        integer not null check (duree_mois between 1 and 1200),
+  duree_mois        integer not null default 12 check (duree_mois between 1 and 1200),
   fractionnement    text not null check (fractionnement in
                       ('annuel', 'semestriel', 'trimestriel', 'prime_unique')),
   date_fin          date not null,
@@ -165,8 +165,9 @@ alter table contrats add constraint contrats_fractionnement_check check (
 );
 alter table contrats drop constraint if exists contrats_duree_mois_check;
 alter table contrats add constraint contrats_duree_mois_check check (duree_mois between 1 and 1200);
+alter table contrats alter column duree_mois set default 12;
 
--- La date de fin est une donnée technique dérivée, jamais une saisie utilisateur.
+-- duree_mois et date_fin sont des données techniques de compatibilité, jamais des saisies utilisateur.
 create or replace function f_calcul_date_fin_contrat() returns trigger as $$
 begin
   new.date_fin := (new.date_effet + make_interval(months => new.duree_mois))::date;

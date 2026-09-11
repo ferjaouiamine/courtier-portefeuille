@@ -6,7 +6,7 @@ const CHAMPS_VISIBLES = {
   produits: ['nom', 'branche'],
   clients: ['type_client', 'nom', 'cin_ou_matricule', 'telephone', 'code_client_finasure', 'date_naissance'],
   contrats: [
-    'numero_contrat', 'societe_leasing', 'immatriculation', 'date_effet', 'duree_mois',
+    'numero_contrat', 'societe_leasing', 'immatriculation', 'date_effet',
     'fractionnement', 'prime_totale', 'statut',
   ],
   echeances: ['type_echeance', 'numero_terme', 'date_echeance', 'montant_prime', 'statut'],
@@ -31,7 +31,6 @@ const LIBELLES_CHAMPS = {
   societe_leasing: 'Société de leasing',
   immatriculation: 'Immatriculation',
   date_effet: "Date d'effet",
-  duree_mois: 'Durée (mois)',
   fractionnement: 'Fréquence de paiement',
   prime_totale: 'Prime totale',
   statut: 'Statut',

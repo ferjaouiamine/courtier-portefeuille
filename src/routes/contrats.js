@@ -7,6 +7,7 @@ const { lirePagination, reponsePaginee } = require('../pagination');
 const { journaliser, resumerLigneAudit } = require('../audit');
 const stockage = require('../stockage');
 const { calculerDateFin } = require('../dates-contrat');
+const { normaliserDureeEtFractionnement, typeDureeDepuisFractionnement } = require('../regles-contrat');
 
 const routeur = express.Router();
 routeur.use(exigerConnexion);
@@ -35,7 +36,7 @@ async function effacerFichierSiPresent(cleStockage) {
 
 const TRIS_AUTORISES = {
   date_effet: 'c.date_effet',
-  duree_mois: 'c.duree_mois',
+  type_duree: "case when c.fractionnement = 'prime_unique' then 0 else 1 end",
   prime_totale: 'c.prime_totale',
   client_nom: 'cl.nom',
   numero_contrat: 'c.numero_contrat',
@@ -74,6 +75,7 @@ routeur.get('/', async (req, res) => {
     parametres.push(limite, offset);
     const resultat = await requete(
       `select c.id, c.numero_contrat, c.statut, c.date_effet, c.date_fin, c.duree_mois, c.fractionnement,
+              case when c.fractionnement = 'prime_unique' then 'ferme' else 'rtr' end as type_duree,
               c.prime_totale,
               cl.id as client_id, cl.nom as client_nom, cl.telephone as client_telephone,
               s.id as souscripteur_id, s.nom as souscripteur_nom,
@@ -105,7 +107,9 @@ routeur.get('/', async (req, res) => {
 routeur.get('/:id', async (req, res) => {
   try {
     const contrat = await requete(
-      `select c.*, cl.nom as client_nom, cl.telephone as client_telephone,
+      `select c.*,
+              case when c.fractionnement = 'prime_unique' then 'ferme' else 'rtr' end as type_duree,
+              cl.nom as client_nom, cl.telephone as client_telephone,
               s.nom as souscripteur_nom,
               coalesce(nullif(c.societe_leasing, ''), sl.nom) as societe_leasing_nom,
               pa.nom as payeur_nom,
@@ -296,13 +300,15 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
       dateEffet, dureeMois, fractionnement, primeTotale,
     } = req.body || {};
 
-    if (!numeroContrat || !clientId || !compagnieId || !produitId || !dateEffet || !dureeMois || !fractionnement) {
+    if (!numeroContrat || !clientId || !compagnieId || !produitId || !dateEffet || !fractionnement) {
       return res.status(400).json({ erreur: 'Merci de renseigner tous les champs obligatoires du contrat.' });
     }
     if (!Number.isFinite(Number(primeTotale)) || Number(primeTotale) < 0) {
       return res.status(400).json({ erreur: 'La prime doit être un montant positif ou nul.' });
     }
-    const dateFinCalculee = calculerDateFin(dateEffet, dureeMois);
+    const dureeTechnique = dureeMois ?? 12;
+    const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
+    const dateFinCalculee = calculerDateFin(dateEffet, dureeTechnique);
 
     const contrat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const resultat = await client.query(
@@ -317,14 +323,15 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
           numeroContrat, clientId, souscripteurId || clientId, String(societeLeasing || '').trim() || null,
           payeurId || souscripteurId || clientId,
           compagnieId, produitId, typeContrat || null, immatriculation || null,
-          dateEffet, Number(dureeMois), fractionnement, dateFinCalculee, Number(primeTotale), req.utilisateur.id,
+          dateEffet, Number(dureeTechnique), regles.fractionnement, dateFinCalculee,
+          Number(primeTotale), req.utilisateur.id,
         ]
       );
       await client.query('select generer_echeances($1)', [resultat.rows[0].id]);
       return resultat.rows[0];
     });
 
-    res.status(201).json(contrat);
+    res.status(201).json({ ...contrat, type_duree: regles.typeDuree });
   } catch (erreur) {
     gererErreur(res, erreur, 'contrats.creation');
   }
@@ -341,7 +348,9 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
     if (!Number.isFinite(Number(primeTotale)) || Number(primeTotale) < 0) {
       return res.status(400).json({ erreur: 'La prime doit être un montant positif ou nul.' });
     }
-    const dateFinCalculee = calculerDateFin(dateEffet, dureeMois);
+    const dureeTechnique = dureeMois ?? 12;
+    const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
+    const dateFinCalculee = calculerDateFin(dateEffet, dureeTechnique);
 
     const contrat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const resultat = await client.query(
@@ -355,7 +364,7 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
         [
           numeroContrat, clientId, souscripteurId || clientId, String(societeLeasing || '').trim() || null,
           payeurId || souscripteurId || clientId, compagnieId, produitId,
-          typeContrat || null, immatriculation || null, dateEffet, Number(dureeMois), fractionnement,
+          typeContrat || null, immatriculation || null, dateEffet, Number(dureeTechnique), regles.fractionnement,
           dateFinCalculee, Number(primeTotale), statut || null, req.utilisateur.id, req.params.id,
         ]
       );
@@ -369,7 +378,7 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
     if (!contrat) {
       return res.status(404).json({ erreur: 'Contrat introuvable ou archivé.' });
     }
-    res.json(contrat);
+    res.json({ ...contrat, type_duree: regles.typeDuree });
   } catch (erreur) {
     gererErreur(res, erreur, 'contrats.modification');
   }
@@ -422,6 +431,11 @@ routeur.post('/:id/renouveler', exigerRole('admin', 'agent'), async (req, res) =
       if (precedent.rowCount === 0) return null;
 
       const contrat = precedent.rows[0];
+      if (contrat.fractionnement === 'prime_unique') {
+        const erreur = new Error('Un contrat à durée ferme ne peut pas être renouvelé.');
+        erreur.status = 400;
+        throw erreur;
+      }
       const nouvelleDateEffet = calculerDateFin(contrat.date_effet, contrat.duree_mois);
       const nouvelleDateFin = calculerDateFin(nouvelleDateEffet, contrat.duree_mois);
       const nouveau = await client.query(
@@ -459,7 +473,10 @@ routeur.post('/:id/renouveler', exigerRole('admin', 'agent'), async (req, res) =
     if (!nouveauId) return res.status(404).json({ erreur: 'Contrat introuvable ou archivé.' });
 
     const nouveauContrat = await requete('select * from contrats where id = $1', [nouveauId]);
-    res.status(201).json(nouveauContrat.rows[0]);
+    res.status(201).json({
+      ...nouveauContrat.rows[0],
+      type_duree: typeDureeDepuisFractionnement(nouveauContrat.rows[0].fractionnement),
+    });
   } catch (erreur) {
     gererErreur(res, erreur, 'contrats.renouvellement');
   }
