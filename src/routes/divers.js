@@ -456,7 +456,7 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
 
     const resultat = await requete(
       `select c.numero_contrat, cl.nom as client_nom, cp.nom as compagnie_nom, pr.nom as produit_nom,
-              c.statut, c.date_effet, c.fractionnement,
+              c.statut, c.date_effet, c.date_fin, c.fractionnement,
               case when c.fractionnement = 'prime_unique' then 'ferme' else 'rtr' end as type_duree,
               c.prime_totale
        from contrats c
@@ -470,7 +470,7 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
 
     const entetes = [
       'Numéro de contrat', 'Client', 'Compagnie', 'Produit', 'Statut',
-      "Date d'effet", 'Durée du contrat', 'Fréquence de paiement',
+      "Date d'effet", 'Date de fin (durée ferme)', 'Durée du contrat', 'Fréquence de paiement',
       'Prime totale',
     ];
 
@@ -483,6 +483,7 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
         echapperCsv(ligne.produit_nom),
         echapperCsv(ligne.statut),
         formaterDateCsv(ligne.date_effet),
+        ligne.type_duree === 'ferme' ? formaterDateCsv(ligne.date_fin) : '',
         echapperCsv(ligne.type_duree === 'ferme'
           ? 'Durée ferme'
           : 'Renouvelable par tacite reconduction (RTR)'),

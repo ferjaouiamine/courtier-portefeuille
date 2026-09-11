@@ -113,13 +113,29 @@ function calculerDateEcheance() {
   $('#contrat-date-echeance').value = `${anneeCible}-${String(moisCible + 1).padStart(2, '0')}-${String(Math.min(jour, dernierJour)).padStart(2, '0')}`;
 }
 
+function actualiserContrainteDateFin() {
+  const dateFin = $('#contrat-date-fin');
+  const valeur = $('#contrat-date-effet').value;
+  if (!valeur) {
+    dateFin.removeAttribute('min');
+    return;
+  }
+  const dateMinimum = new Date(`${valeur}T00:00:00Z`);
+  dateMinimum.setUTCDate(dateMinimum.getUTCDate() + 1);
+  dateFin.min = dateMinimum.toISOString().slice(0, 10);
+}
+
 function appliquerReglesDureeContrat() {
   const dureeFerme = $('#contrat-type-duree').value === 'ferme';
   const fractionnement = $('#contrat-fractionnement');
+  const dateFin = $('#contrat-date-fin');
   if (dureeFerme) fractionnement.value = 'prime_unique';
   else if (fractionnement.value === 'prime_unique') fractionnement.value = 'annuel';
   $('#zone-contrat-fractionnement').hidden = dureeFerme;
   $('#zone-contrat-date-echeance').hidden = dureeFerme;
+  $('#zone-contrat-date-fin').hidden = !dureeFerme;
+  dateFin.required = dureeFerme;
+  actualiserContrainteDateFin();
   synchroniserSelectRecherchable(fractionnement);
   calculerDateEcheance();
 }
@@ -620,6 +636,9 @@ async function chargerContrats() {
 async function ouvrirFicheContrat(id) {
   const contrat = await api(`/api/contrats/${id}`);
   etat.contratId = contrat.id;
+  const dateFinFerme = typeDureeContrat(contrat) === 'ferme'
+    ? `<div>Date de fin<div class="valeur">${formaterDate(contrat.date_fin)}</div></div>`
+    : '';
   const actions = peutEcrire() ? `<div class="actions-ligne">
     <button type="button" data-action="modifier-contrat">Modifier</button>
     ${contrat.statut === 'en_cours' && typeDureeContrat(contrat) === 'rtr' ? '<button type="button" data-action="renouveler-contrat">Renouveler</button>' : ''}
@@ -653,6 +672,7 @@ async function ouvrirFicheContrat(id) {
     <div class="carte fiche-cumuls"><div>Prime totale<div class="valeur">${formaterMontant(contrat.prime_totale)}</div></div>
     <div>Date d'effet<div class="valeur">${formaterDate(contrat.date_effet)}</div></div>
     <div>Durée du contrat<div class="valeur">${echapper(libelleTypeDuree(contrat))}</div></div>
+    ${dateFinFerme}
     <div>Statut<div class="valeur">${echapper(libelleCode(contrat.statut))}</div></div></div>
     <div class="carte"><div class="entete-section"><h3>Pièces jointes du contrat</h3>${ajoutPieceJointe}</div>
     ${piecesJointes ? `<ul class="liste-pieces-jointes">${piecesJointes}</ul>` : '<p class="etat-vide">Aucune pièce jointe.</p>'}</div>
@@ -780,7 +800,8 @@ async function ouvrirModaleContrat(contrat = null) {
     '#contrat-numero': contrat?.numero_contrat,
     '#contrat-compagnie': contrat?.compagnie_id, '#contrat-produit': contrat?.produit_id,
     '#contrat-immatriculation': contrat?.immatriculation,
-    '#contrat-date-effet': contrat?.date_effet?.slice(0, 10), '#contrat-duree': contrat?.duree_mois || 12,
+    '#contrat-date-effet': contrat?.date_effet?.slice(0, 10), '#contrat-date-fin': contrat?.date_fin?.slice(0, 10),
+    '#contrat-duree': contrat?.duree_mois || 12,
     '#contrat-type-duree': typeDureeContrat(contrat),
     '#contrat-fractionnement': contrat?.fractionnement || 'annuel',
     '#contrat-date-echeance': contrat?.date_echeance?.slice(0, 10),
@@ -937,6 +958,7 @@ function brancherFormulaires() {
         compagnieId: $('#contrat-compagnie').value, produitId: $('#contrat-produit').value,
         immatriculation: $('#contrat-immatriculation').value.trim(),
         dateEffet: $('#contrat-date-effet').value, dureeMois: Number($('#contrat-duree').value),
+        dateFin: $('#contrat-type-duree').value === 'ferme' ? $('#contrat-date-fin').value : null,
         typeDuree: $('#contrat-type-duree').value,
         fractionnement: $('#contrat-fractionnement').value,
         primeTotale: Number($('#contrat-prime').value),
@@ -1065,7 +1087,10 @@ function brancherEvenements() {
     $('#zone-client-date-naissance').hidden = !physique;
     if (!physique) $('#client-date-naissance').value = '';
   });
-  $('#contrat-date-effet').addEventListener('change', calculerDateEcheance);
+  $('#contrat-date-effet').addEventListener('change', () => {
+    actualiserContrainteDateFin();
+    calculerDateEcheance();
+  });
   $('#contrat-fractionnement').addEventListener('change', calculerDateEcheance);
   $('#contrat-type-duree').addEventListener('change', appliquerReglesDureeContrat);
   $('#contrat-client').addEventListener('change', () => {

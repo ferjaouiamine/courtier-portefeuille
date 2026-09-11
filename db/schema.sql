@@ -167,17 +167,19 @@ alter table contrats drop constraint if exists contrats_duree_mois_check;
 alter table contrats add constraint contrats_duree_mois_check check (duree_mois between 1 and 1200);
 alter table contrats alter column duree_mois set default 12;
 
--- duree_mois et date_fin sont des données techniques de compatibilité, jamais des saisies utilisateur.
+-- La date de fin est saisie pour une durée ferme et dérivée techniquement pour un contrat RTR.
 create or replace function f_calcul_date_fin_contrat() returns trigger as $$
 begin
-  new.date_fin := (new.date_effet + make_interval(months => new.duree_mois))::date;
+  if new.fractionnement <> 'prime_unique' then
+    new.date_fin := (new.date_effet + make_interval(months => new.duree_mois))::date;
+  end if;
   return new;
 end;
 $$ language plpgsql;
 
 drop trigger if exists trg_calcul_date_fin_contrat on contrats;
 create trigger trg_calcul_date_fin_contrat
-before insert or update of date_effet, duree_mois on contrats
+before insert or update of date_effet, duree_mois, fractionnement, date_fin on contrats
 for each row execute function f_calcul_date_fin_contrat();
 
 create or replace function f_calcul_date_echeance_contrat() returns trigger as $$

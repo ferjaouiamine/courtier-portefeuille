@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { calculerDateFin } = require('../src/dates-contrat');
+const { calculerDateFin, validerDateFinFerme } = require('../src/dates-contrat');
 
 test('la date de fin est calculée avec la durée en mois', () => {
   assert.equal(calculerDateFin('2026-09-08', 3), '2026-12-08');
@@ -18,4 +18,13 @@ test('la date et la durée invalides sont refusées', () => {
   assert.throws(() => calculerDateFin('2026-09-08', 0), /durée du contrat/i);
   assert.throws(() => calculerDateFin('2026-09-08', 1.5), /durée du contrat/i);
   assert.throws(() => calculerDateFin('2026-09-08', 1201), /durée du contrat/i);
+});
+
+test('la date de fin d’une durée ferme doit suivre la date d’effet', () => {
+  assert.equal(validerDateFinFerme('2026-09-08', '2027-03-31'), '2027-03-31');
+  assert.throws(
+    () => validerDateFinFerme('2026-09-08', '2026-09-08'),
+    /postérieure à la date d'effet/
+  );
+  assert.throws(() => validerDateFinFerme('2026-09-08', '2026-02-30'), /date de fin est invalide/i);
 });

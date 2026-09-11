@@ -6,16 +6,16 @@ function erreurSaisie(message) {
   return erreur;
 }
 
-function parserDateIso(valeur) {
+function parserDateIso(valeur, libelle = "La date d'effet") {
   const correspondance = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(valeur || ''));
-  if (!correspondance) throw erreurSaisie("La date d'effet est invalide.");
+  if (!correspondance) throw erreurSaisie(`${libelle} est invalide.`);
   const [, anneeTexte, moisTexte, jourTexte] = correspondance;
   const annee = Number(anneeTexte);
   const mois = Number(moisTexte);
   const jour = Number(jourTexte);
   const date = new Date(Date.UTC(annee, mois - 1, jour));
   if (date.getUTCFullYear() !== annee || date.getUTCMonth() !== mois - 1 || date.getUTCDate() !== jour) {
-    throw erreurSaisie("La date d'effet est invalide.");
+    throw erreurSaisie(`${libelle} est invalide.`);
   }
   return { annee, mois, jour };
 }
@@ -34,4 +34,13 @@ function calculerDateFin(dateEffet, dureeMois) {
   return `${anneeCible}-${String(moisCible + 1).padStart(2, '0')}-${String(Math.min(jour, dernierJour)).padStart(2, '0')}`;
 }
 
-module.exports = { calculerDateFin };
+function validerDateFinFerme(dateEffet, dateFin) {
+  parserDateIso(dateEffet);
+  parserDateIso(dateFin, 'La date de fin');
+  if (dateFin <= dateEffet) {
+    throw erreurSaisie("La date de fin doit être postérieure à la date d'effet.");
+  }
+  return dateFin;
+}
+
+module.exports = { calculerDateFin, validerDateFinFerme };

@@ -6,7 +6,7 @@ const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
 const { journaliser, resumerLigneAudit } = require('../audit');
 const stockage = require('../stockage');
-const { calculerDateFin } = require('../dates-contrat');
+const { calculerDateFin, validerDateFinFerme } = require('../dates-contrat');
 const { normaliserDureeEtFractionnement, typeDureeDepuisFractionnement } = require('../regles-contrat');
 
 const routeur = express.Router();
@@ -297,7 +297,7 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
     const {
       numeroContrat, clientId, souscripteurId, societeLeasing, payeurId,
       compagnieId, produitId, typeContrat, immatriculation,
-      dateEffet, dureeMois, fractionnement, primeTotale,
+      dateEffet, dateFin, dureeMois, fractionnement, primeTotale,
     } = req.body || {};
 
     if (!numeroContrat || !clientId || !compagnieId || !produitId || !dateEffet || !fractionnement) {
@@ -308,7 +308,9 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
     }
     const dureeTechnique = dureeMois ?? 12;
     const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
-    const dateFinCalculee = calculerDateFin(dateEffet, dureeTechnique);
+    const dateFinEnregistree = regles.typeDuree === 'ferme'
+      ? validerDateFinFerme(dateEffet, dateFin)
+      : calculerDateFin(dateEffet, dureeTechnique);
 
     const contrat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const resultat = await client.query(
@@ -323,7 +325,7 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
           numeroContrat, clientId, souscripteurId || clientId, String(societeLeasing || '').trim() || null,
           payeurId || souscripteurId || clientId,
           compagnieId, produitId, typeContrat || null, immatriculation || null,
-          dateEffet, Number(dureeTechnique), regles.fractionnement, dateFinCalculee,
+          dateEffet, Number(dureeTechnique), regles.fractionnement, dateFinEnregistree,
           Number(primeTotale), req.utilisateur.id,
         ]
       );
@@ -342,7 +344,7 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
     const {
       numeroContrat, clientId, souscripteurId, societeLeasing, payeurId,
       compagnieId, produitId, typeContrat, immatriculation,
-      dateEffet, dureeMois, fractionnement, primeTotale, statut,
+      dateEffet, dateFin, dureeMois, fractionnement, primeTotale, statut,
     } = req.body || {};
 
     if (!Number.isFinite(Number(primeTotale)) || Number(primeTotale) < 0) {
@@ -350,7 +352,9 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
     }
     const dureeTechnique = dureeMois ?? 12;
     const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
-    const dateFinCalculee = calculerDateFin(dateEffet, dureeTechnique);
+    const dateFinEnregistree = regles.typeDuree === 'ferme'
+      ? validerDateFinFerme(dateEffet, dateFin)
+      : calculerDateFin(dateEffet, dureeTechnique);
 
     const contrat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const resultat = await client.query(
@@ -365,7 +369,7 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
           numeroContrat, clientId, souscripteurId || clientId, String(societeLeasing || '').trim() || null,
           payeurId || souscripteurId || clientId, compagnieId, produitId,
           typeContrat || null, immatriculation || null, dateEffet, Number(dureeTechnique), regles.fractionnement,
-          dateFinCalculee, Number(primeTotale), statut || null, req.utilisateur.id, req.params.id,
+          dateFinEnregistree, Number(primeTotale), statut || null, req.utilisateur.id, req.params.id,
         ]
       );
       if (resultat.rowCount === 0) return null;
