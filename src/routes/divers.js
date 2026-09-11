@@ -5,6 +5,7 @@ const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
 const { journaliser, resumerLigneAudit } = require('../audit');
 const stockage = require('../stockage');
+const { echapperCsv, formaterNumeroContratCsv } = require('../csv');
 
 const routeur = express.Router();
 routeur.use(exigerConnexion);
@@ -426,11 +427,6 @@ function formaterDateCsv(valeur) {
   return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
 }
 
-function echapperCsv(valeur) {
-  const texte = valeur === null || valeur === undefined ? '' : String(valeur);
-  return /[;"\n]/.test(texte) ? `"${texte.replace(/"/g, '""')}"` : texte;
-}
-
 routeur.get('/export/portefeuille.csv', async (req, res) => {
   try {
     const { statut, compagnie_id: compagnieId, produit_id: produitId, recherche } = req.query;
@@ -477,7 +473,7 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
     const lignes = [entetes.join(';')];
     for (const ligne of resultat.rows) {
       lignes.push([
-        echapperCsv(ligne.numero_contrat),
+        formaterNumeroContratCsv(ligne.numero_contrat),
         echapperCsv(ligne.client_nom),
         echapperCsv(ligne.compagnie_nom),
         echapperCsv(ligne.produit_nom),
