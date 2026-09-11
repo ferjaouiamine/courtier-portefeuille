@@ -507,14 +507,15 @@ $$;
 -- =====================================================================
 -- Fonction : génération de l'échéancier d'un contrat
 --
--- Répartit prime_totale et com_brute à parts égales entre les termes
--- (le dernier terme absorbe l'arrondi résiduel), ajoute l'échéance de
--- renouvellement à date_fin, et ne modifie jamais un terme déjà réglé.
+-- Conserve les termes payés et maintient un seul prochain terme actif.
+-- La date reste ancrée sur la date d'effet pour éviter les dérives de fin de mois.
 -- =====================================================================
 
 create or replace function generer_echeances(p_contrat_id uuid) returns void as $$
 declare
   v contrats%rowtype;
+  v_numero_terme integer;
+  v_mois integer;
 begin
   select * into v from contrats where id = p_contrat_id;
   if not found then
@@ -534,19 +535,34 @@ begin
     return;
   end if;
 
+  v_mois := case v.fractionnement
+    when 'trimestriel' then 3
+    when 'semestriel' then 6
+    when 'annuel' then 12
+  end;
+
+  select coalesce(max(numero_terme), 0) + 1 into v_numero_terme
+  from echeances
+  where contrat_id = p_contrat_id and type_echeance = 'terme' and statut = 'payee';
+
   update echeances set supprime_le = coalesce(supprime_le, now())
   where contrat_id = p_contrat_id and type_echeance = 'terme'
-    and numero_terme > 1 and statut <> 'payee';
+    and numero_terme <> v_numero_terme
+    and statut not in ('payee', 'partielle') and supprime_le is null;
 
   insert into echeances (contrat_id, type_echeance, numero_terme, date_echeance, montant_prime, montant_commission)
-  values (p_contrat_id, 'terme', 1, v.date_echeance, v.prime_totale, v.com_brute)
+  values (
+    p_contrat_id, 'terme', v_numero_terme,
+    (v.date_effet + make_interval(months => v_mois * v_numero_terme))::date,
+    v.prime_totale, v.com_brute
+  )
   on conflict (contrat_id, numero_terme, type_echeance) do update
     set date_echeance = excluded.date_echeance,
         montant_prime = excluded.montant_prime,
         montant_commission = excluded.montant_commission,
         supprime_le = null,
         supprime_par = null
-    where echeances.statut <> 'payee';
+    where echeances.statut not in ('payee', 'partielle');
 end;
 $$ language plpgsql;
 

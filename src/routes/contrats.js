@@ -8,6 +8,7 @@ const { journaliser, resumerLigneAudit } = require('../audit');
 const stockage = require('../stockage');
 const { calculerDateFin, validerDateFinFerme } = require('../dates-contrat');
 const { normaliserDureeEtFractionnement, typeDureeDepuisFractionnement } = require('../regles-contrat');
+const { synchroniserProchaineEcheance } = require('../echeancier');
 
 const routeur = express.Router();
 routeur.use(exigerConnexion);
@@ -329,7 +330,7 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
           Number(primeTotale), req.utilisateur.id,
         ]
       );
-      await client.query('select generer_echeances($1)', [resultat.rows[0].id]);
+      await synchroniserProchaineEcheance(client, resultat.rows[0]);
       return resultat.rows[0];
     });
 
@@ -373,9 +374,7 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
         ]
       );
       if (resultat.rowCount === 0) return null;
-      // Régénère l'échéancier avec les nouveaux montants/dates ; les termes déjà
-      // réglés ne sont jamais réécrits (voir generer_echeances côté SQL).
-      await client.query('select generer_echeances($1)', [req.params.id]);
+      await synchroniserProchaineEcheance(client, resultat.rows[0]);
       return resultat.rows[0];
     });
 
@@ -470,7 +469,8 @@ routeur.post('/:id/renouveler', exigerRole('admin', 'agent'), async (req, res) =
         "update echeances set statut = 'payee' where contrat_id = $1 and type_echeance = 'renouvellement'",
         [contrat.id]
       );
-      await client.query('select generer_echeances($1)', [nouveau.rows[0].id]);
+      const nouveauContrat = await client.query('select * from contrats where id = $1', [nouveau.rows[0].id]);
+      await synchroniserProchaineEcheance(client, nouveauContrat.rows[0]);
       return nouveau.rows[0].id;
     });
 

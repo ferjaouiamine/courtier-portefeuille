@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   normaliserDureeEtFractionnement,
+  moisDuFractionnement,
   typeDureeDepuisFractionnement,
 } = require('../src/regles-contrat');
 
@@ -23,6 +24,9 @@ test('une durée RTR accepte les trois fréquences prévues', () => {
     });
   }
   assert.equal(typeDureeDepuisFractionnement('annuel'), 'rtr');
+  assert.equal(moisDuFractionnement('trimestriel'), 3);
+  assert.equal(moisDuFractionnement('semestriel'), 6);
+  assert.equal(moisDuFractionnement('annuel'), 12);
 });
 
 test('une durée RTR refuse la prime unique', () => {

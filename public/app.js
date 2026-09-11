@@ -417,6 +417,17 @@ function afficherErreur(message, conteneur = $(`#vue-${etat.vue}`) || $('#conten
   zone.scrollIntoView({ block: 'nearest' });
 }
 
+function afficherSucces(message, conteneur = $(`#vue-${etat.vue}`) || $('#contenu')) {
+  let zone = $('.message-succes', conteneur);
+  if (!zone) {
+    zone = document.createElement('p');
+    zone.className = 'message-succes';
+    conteneur.prepend(zone);
+  }
+  zone.textContent = message;
+  zone.hidden = false;
+}
+
 async function api(chemin, options = {}) {
   const estFormulaireFichier = options.body instanceof FormData;
   const reponse = await fetch(chemin, {
@@ -974,7 +985,7 @@ function brancherFormulaires() {
   $('#formulaire-encaissement').addEventListener('submit', (event) => {
     event.preventDefault();
     soumettre(event.currentTarget, async () => {
-      await api(`/api/echeances/${etat.echeanceId}/paiements`, {
+      const resultat = await api(`/api/echeances/${etat.echeanceId}/paiements`, {
         method: 'POST', body: JSON.stringify({
           montant: Number($('#encaissement-montant').value), modePaiement: $('#encaissement-mode').value,
           reference: $('#encaissement-reference').value.trim(), datePaiement: $('#encaissement-date').value || null,
@@ -982,6 +993,16 @@ function brancherFormulaires() {
       });
       $('#modale-encaissement').close();
       await chargerEcheances();
+      if (resultat.prochaineEcheance) {
+        afficherSucces(
+          `Échéance encaissée. Prochaine échéance : ${formaterDate(resultat.prochaineEcheance.date_echeance)}.`,
+          $('#vue-echeances')
+        );
+      } else if (resultat.statutEcheance === 'payee') {
+        afficherSucces('Échéance entièrement encaissée.', $('#vue-echeances'));
+      } else {
+        afficherSucces('Encaissement partiel enregistré sur cette échéance.', $('#vue-echeances'));
+      }
     });
   });
 

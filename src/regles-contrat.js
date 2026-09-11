@@ -2,6 +2,7 @@
 
 const TYPES_DUREE = new Set(['ferme', 'rtr']);
 const FRACTIONNEMENTS_RTR = new Set(['annuel', 'semestriel', 'trimestriel']);
+const MOIS_PAR_FRACTIONNEMENT = Object.freeze({ annuel: 12, semestriel: 6, trimestriel: 3 });
 
 function erreurSaisie(message) {
   const erreur = new Error(message);
@@ -11,6 +12,10 @@ function erreurSaisie(message) {
 
 function typeDureeDepuisFractionnement(fractionnement) {
   return fractionnement === 'prime_unique' ? 'ferme' : 'rtr';
+}
+
+function moisDuFractionnement(fractionnement) {
+  return MOIS_PAR_FRACTIONNEMENT[fractionnement] || null;
 }
 
 function normaliserDureeEtFractionnement(typeDuree, fractionnement) {
@@ -30,6 +35,7 @@ function normaliserDureeEtFractionnement(typeDuree, fractionnement) {
 
 module.exports = {
   FRACTIONNEMENTS_RTR,
+  moisDuFractionnement,
   normaliserDureeEtFractionnement,
   typeDureeDepuisFractionnement,
 };
