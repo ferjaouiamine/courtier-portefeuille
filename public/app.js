@@ -711,7 +711,9 @@ async function ouvrirFicheContrat(id) {
     <button type="button" data-action="modifier-contrat">Modifier</button>
     ${contrat.statut === 'en_cours' && typeDureeContrat(contrat) === 'rtr' ? '<button type="button" data-action="renouveler-contrat">Renouveler</button>' : ''}
     <button type="button" class="danger" data-action="archiver-contrat">Archiver</button></div>` : '';
-  const echeances = contrat.echeances.map((ligne) => `<tr><td>${formaterDate(ligne.date_echeance)}</td>
+  const echeances = contrat.echeances.map((ligne) => `<tr>
+    <td>${ligne.type_echeance === 'terme' ? echapper(ligne.numero_terme) : 'Renouvellement'}</td>
+    <td>${formaterDate(ligne.date_echeance)}</td>
     <td>${formaterMontant(ligne.montant_prime)}</td>
     <td>${etiquetteStatutEcheance(ligne.statut)}</td></tr>`).join('');
   const paiements = contrat.paiements.map((ligne) => `<tr><td>${formaterDate(ligne.date_paiement)}</td>
@@ -749,7 +751,7 @@ async function ouvrirFicheContrat(id) {
     <div class="carte"><div class="entete-section"><h3>Pièces jointes du contrat</h3>${ajoutPieceJointe}</div>
     ${piecesJointes ? `<ul class="liste-pieces-jointes">${piecesJointes}</ul>` : '<p class="etat-vide">Aucune pièce jointe.</p>'}</div>
     <div class="carte"><h3>Échéancier complet</h3>${echeances
-      ? `<div class="tableau-responsive"><table><thead><tr><th>Date</th><th>Montant</th><th>Statut</th></tr></thead><tbody>${echeances}</tbody></table></div>`
+      ? `<div class="tableau-responsive"><table><thead><tr><th>N°</th><th>Date</th><th>Montant</th><th>Statut</th></tr></thead><tbody>${echeances}</tbody></table></div>`
       : '<p class="etat-vide">Aucune échéance pour ce contrat.</p>'}</div>
     <div class="carte"><h3>Paiements</h3>${paiements ? `<div class="tableau-responsive"><table><thead><tr><th>Date</th><th>Montant</th><th>Feuille de caisse</th><th>Commission nette</th><th>Mode</th><th>Référence</th></tr></thead><tbody>${paiements}</tbody></table></div>` : '<p class="etat-vide">Aucun paiement.</p>'}</div>
     <div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>`;
