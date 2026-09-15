@@ -51,9 +51,12 @@ function typeDureeContrat(contrat) {
 }
 
 function libelleTypeDuree(contrat) {
-  return typeDureeContrat(contrat) === 'ferme'
-    ? 'Durée ferme'
-    : 'Renouvelable par tacite reconduction (RTR)';
+  return typeDureeContrat(contrat) === 'ferme' ? 'DF' : 'RTR';
+}
+
+function etiquetteFeuilleCaisse(disponible) {
+  const classe = disponible ? 'oui' : 'non';
+  return `<span class="etiquette-feuille-caisse ${classe}">${disponible ? 'Oui' : 'Non'}</span>`;
 }
 
 function libelleStatutEcheance(statut) {
@@ -152,6 +155,15 @@ function appliquerReglesDureeContrat() {
   actualiserContrainteDateFin();
   synchroniserSelectRecherchable(fractionnement);
   calculerDateEcheance();
+}
+
+function appliquerReglesFeuilleCaisse() {
+  const disponible = $('#contrat-feuille-caisse-oui').checked;
+  const commission = $('#contrat-commission-nette');
+  $('#zone-contrat-commission-nette').hidden = !disponible;
+  commission.disabled = !disponible;
+  commission.required = disponible;
+  if (!disponible) commission.value = '';
 }
 
 function parametres(objet) {
@@ -661,6 +673,8 @@ async function chargerContrats() {
     <td>${echapper(ligne.numero_contrat)}</td><td>${echapper(ligne.client_nom)}</td>
     <td>${echapper(ligne.compagnie_nom)}</td><td>${echapper(ligne.produit_nom)}</td>
     <td>${formaterDate(ligne.date_effet)}</td><td>${echapper(libelleTypeDuree(ligne))}</td>
+    <td>${etiquetteFeuilleCaisse(ligne.feuille_caisse)}</td>
+    <td class="commission-nette">${ligne.feuille_caisse ? formaterMontant(ligne.com_nette) : ''}</td>
     <td>${formaterMontant(ligne.prime_totale)}</td><td>${echapper(libelleCode(ligne.statut))}</td></tr>`).join('');
   $('#etat-vide-contrats').hidden = lignes.length > 0;
   afficherPagination('contrats', resultat.pagination);
@@ -672,6 +686,9 @@ async function ouvrirFicheContrat(id) {
   etat.contratId = contrat.id;
   const dateFinFerme = typeDureeContrat(contrat) === 'ferme'
     ? `<div>Date de fin<div class="valeur">${formaterDate(contrat.date_fin)}</div></div>`
+    : '';
+  const commissionNette = contrat.feuille_caisse
+    ? `<div>Commission nette<div class="valeur commission-nette">${formaterMontant(contrat.com_nette)}</div></div>`
     : '';
   const actions = peutEcrire() ? `<div class="actions-ligne">
     <button type="button" data-action="modifier-contrat">Modifier</button>
@@ -706,6 +723,8 @@ async function ouvrirFicheContrat(id) {
     <div class="carte fiche-cumuls"><div>Prime totale<div class="valeur">${formaterMontant(contrat.prime_totale)}</div></div>
     <div>Date d'effet<div class="valeur">${formaterDate(contrat.date_effet)}</div></div>
     <div>Durée du contrat<div class="valeur">${echapper(libelleTypeDuree(contrat))}</div></div>
+    <div>Feuille de caisse<div class="valeur">${etiquetteFeuilleCaisse(contrat.feuille_caisse)}</div></div>
+    ${commissionNette}
     ${dateFinFerme}
     <div>Statut<div class="valeur">${echapper(libelleCode(contrat.statut))}</div></div></div>
     <div class="carte"><div class="entete-section"><h3>Pièces jointes du contrat</h3>${ajoutPieceJointe}</div>
@@ -850,10 +869,14 @@ async function ouvrirModaleContrat(contrat = null) {
     '#contrat-fractionnement': contrat?.fractionnement || 'annuel',
     '#contrat-date-echeance': contrat?.date_echeance?.slice(0, 10),
     '#contrat-prime': contrat?.prime_totale,
+    '#contrat-commission-nette': contrat?.feuille_caisse ? contrat.com_nette : '',
   };
   Object.entries(champs).forEach(([selecteur, valeur]) => { $(selecteur).value = valeur ?? ''; });
+  $('#contrat-feuille-caisse-oui').checked = Boolean(contrat?.feuille_caisse);
+  $('#contrat-feuille-caisse-non').checked = !contrat?.feuille_caisse;
   if (!contrat) $('#contrat-souscripteur').value = $('#contrat-client').value;
   appliquerReglesDureeContrat();
+  appliquerReglesFeuilleCaisse();
   synchroniserTousLesSelects();
   $('#modale-contrat').showModal();
 }
@@ -1006,6 +1029,9 @@ function brancherFormulaires() {
         typeDuree: $('#contrat-type-duree').value,
         fractionnement: $('#contrat-fractionnement').value,
         primeTotale: Number($('#contrat-prime').value),
+        feuilleCaisse: $('#contrat-feuille-caisse-oui').checked,
+        commissionNette: $('#contrat-feuille-caisse-oui').checked
+          ? Number($('#contrat-commission-nette').value) : null,
       };
       const contrat = await api(id ? `/api/contrats/${id}` : '/api/contrats', {
         method: id ? 'PUT' : 'POST', body: JSON.stringify(corps),
@@ -1147,6 +1173,9 @@ function brancherEvenements() {
   });
   $('#contrat-fractionnement').addEventListener('change', calculerDateEcheance);
   $('#contrat-type-duree').addEventListener('change', appliquerReglesDureeContrat);
+  $$('input[name="contrat-feuille-caisse"]').forEach((radio) => {
+    radio.addEventListener('change', appliquerReglesFeuilleCaisse);
+  });
   $('#contrat-client').addEventListener('change', () => {
     if (!etat.edition.contrat) {
       $('#contrat-souscripteur').value = $('#contrat-client').value;

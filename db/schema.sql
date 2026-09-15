@@ -126,10 +126,10 @@ create table if not exists contrats (
   date_echeance     date,
   echeancier_personnalise boolean not null default false,
   prime_totale      numeric(12, 3) not null check (prime_totale >= 0),
+  feuille_caisse    boolean not null default false,
   com_brute         numeric(12, 3) not null default 0 check (com_brute >= 0),
   taux_retenue      numeric(5, 4) not null default 0.10 check (taux_retenue between 0 and 1),
-  com_nette         numeric(12, 3) generated always as
-                      (round(com_brute * (1 - taux_retenue), 3)) stored,
+  com_nette         numeric(12, 3),
   statut            text not null default 'en_cours' check (statut in
                       ('en_cours', 'renouvele', 'resilie', 'archive')),
   contrat_precedent uuid references contrats(id),
@@ -150,6 +150,7 @@ alter table contrats add column if not exists souscripteur_id uuid references cl
 alter table contrats add column if not exists societe_leasing_id uuid references clients(id);
 alter table contrats add column if not exists societe_leasing text;
 alter table contrats add column if not exists payeur_id uuid references clients(id);
+alter table contrats add column if not exists feuille_caisse boolean not null default false;
 alter table contrats add column if not exists organisation_id uuid default organisation_courante() references organisations(id);
 update contrats set organisation_id = '00000000-0000-4000-8000-000000000001' where organisation_id is null;
 alter table contrats alter column organisation_id set not null;
@@ -166,6 +167,27 @@ alter table contrats add constraint contrats_fractionnement_check check (
 alter table contrats drop constraint if exists contrats_duree_mois_check;
 alter table contrats add constraint contrats_duree_mois_check check (duree_mois between 1 and 1200);
 alter table contrats alter column duree_mois set default 12;
+
+-- Depuis Finasure Flow, la commission nette est saisie depuis la feuille de caisse.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'contrats'
+      and column_name = 'com_nette' and is_generated = 'ALWAYS'
+  ) then
+    execute 'alter table contrats alter column com_nette drop expression';
+  end if;
+end;
+$$;
+update contrats set feuille_caisse = true
+where not feuille_caisse and com_nette is not null and com_nette > 0;
+update contrats set com_nette = null where not feuille_caisse;
+alter table contrats drop constraint if exists ck_contrats_feuille_caisse_commission;
+alter table contrats add constraint ck_contrats_feuille_caisse_commission check (
+  (feuille_caisse and com_nette is not null and com_nette >= 0)
+  or (not feuille_caisse and com_nette is null)
+);
 
 -- La date de fin est saisie pour une durée ferme et dérivée techniquement pour un contrat RTR.
 create or replace function f_calcul_date_fin_contrat() returns trigger as $$
@@ -604,7 +626,7 @@ begin
     numero_contrat, client_id, souscripteur_id, societe_leasing_id, societe_leasing, payeur_id,
     compagnie_id, produit_id, type_contrat, immatriculation,
     date_effet, duree_mois, fractionnement, date_fin, date_echeance,
-    prime_totale, com_brute, taux_retenue,
+    prime_totale, feuille_caisse, com_nette, com_brute, taux_retenue,
     statut, contrat_precedent, cree_par, modifie_par
   )
   values (
@@ -614,7 +636,7 @@ begin
     v.duree_mois, v.fractionnement,
     (v.date_effet + make_interval(months => v.duree_mois * 2))::date,
     null,
-    v.prime_totale, v.com_brute, v.taux_retenue,
+    v.prime_totale, false, null, v.com_brute, v.taux_retenue,
     'en_cours', p_contrat_id, p_utilisateur, p_utilisateur
   )
   returning id into v_nouveau_id;
@@ -663,6 +685,7 @@ select
   ,sl.id as societe_leasing_id, coalesce(nullif(c.societe_leasing, ''), sl.nom) as societe_leasing_nom
   ,pa.id as payeur_id, pa.nom as payeur_nom
   ,c.organisation_id
+  ,c.feuille_caisse
 from contrats c
 join clients cl on cl.id = c.client_id and cl.supprime_le is null
 left join clients s on s.id = c.souscripteur_id

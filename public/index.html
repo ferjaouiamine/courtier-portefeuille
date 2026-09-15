@@ -171,7 +171,8 @@
             <thead>
               <tr>
                 <th>N° contrat</th><th>Client</th><th>Compagnie</th><th>Produit</th>
-                <th>Effet</th><th>Durée</th><th>Prime</th><th>Statut</th>
+                <th>Effet</th><th>Durée</th><th>Feuille de caisse</th>
+                <th>Commission nette</th><th>Prime</th><th>Statut</th>
               </tr>
             </thead>
             <tbody id="corps-tableau-contrats"></tbody>
@@ -357,9 +358,19 @@
         </label>
         <label>Durée du contrat
           <select id="contrat-type-duree" required>
-            <option value="ferme">Durée ferme</option>
-            <option value="rtr">Renouvelable par tacite reconduction (RTR)</option>
+            <option value="ferme">DF — Durée ferme</option>
+            <option value="rtr">RTR — Renouvelable par tacite reconduction</option>
           </select>
+        </label>
+        <fieldset class="groupe-feuille-caisse">
+          <legend>Feuille de caisse</legend>
+          <div class="choix-binaire">
+            <label class="non"><input type="radio" id="contrat-feuille-caisse-non" name="contrat-feuille-caisse" value="non" checked /><span>Non</span></label>
+            <label class="oui"><input type="radio" id="contrat-feuille-caisse-oui" name="contrat-feuille-caisse" value="oui" /><span>Oui</span></label>
+          </div>
+        </fieldset>
+        <label id="zone-contrat-commission-nette" hidden>Commission nette (DT)
+          <input type="number" min="0" step="0.001" id="contrat-commission-nette" />
         </label>
         <label id="zone-contrat-fractionnement">Fréquence de paiement
           <select id="contrat-fractionnement" required>

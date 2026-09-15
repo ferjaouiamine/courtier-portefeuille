@@ -454,7 +454,7 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
       `select c.numero_contrat, cl.nom as client_nom, cp.nom as compagnie_nom, pr.nom as produit_nom,
               c.statut, c.date_effet, c.date_fin, c.fractionnement,
               case when c.fractionnement = 'prime_unique' then 'ferme' else 'rtr' end as type_duree,
-              c.prime_totale
+              c.feuille_caisse, c.com_nette, c.prime_totale
        from contrats c
        join clients cl on cl.id = c.client_id
        join compagnies cp on cp.id = c.compagnie_id
@@ -466,7 +466,7 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
 
     const entetes = [
       'Numéro de contrat', 'Client', 'Compagnie', 'Produit', 'Statut',
-      "Date d'effet", 'Date de fin (durée ferme)', 'Durée du contrat', 'Fréquence de paiement',
+      "Date d'effet", 'Date de fin (DF)', 'Durée', 'Feuille de caisse', 'Commission nette', 'Fréquence de paiement',
       'Prime totale',
     ];
 
@@ -480,9 +480,9 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
         echapperCsv(ligne.statut),
         formaterDateCsv(ligne.date_effet),
         ligne.type_duree === 'ferme' ? formaterDateCsv(ligne.date_fin) : '',
-        echapperCsv(ligne.type_duree === 'ferme'
-          ? 'Durée ferme'
-          : 'Renouvelable par tacite reconduction (RTR)'),
+        echapperCsv(ligne.type_duree === 'ferme' ? 'DF' : 'RTR'),
+        echapperCsv(ligne.feuille_caisse ? 'Oui' : 'Non'),
+        ligne.feuille_caisse ? formaterMontantCsv(ligne.com_nette) : '',
         echapperCsv(ligne.fractionnement),
         formaterMontantCsv(ligne.prime_totale),
       ].join(';'));

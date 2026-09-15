@@ -3,10 +3,27 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  normaliserFeuilleCaisse,
   normaliserDureeEtFractionnement,
   moisDuFractionnement,
   typeDureeDepuisFractionnement,
 } = require('../src/regles-contrat');
+
+test('une feuille de caisse absente impose une commission nette vide', () => {
+  assert.deepEqual(normaliserFeuilleCaisse(false, 150), {
+    feuilleCaisse: false,
+    commissionNette: null,
+  });
+});
+
+test('une feuille de caisse disponible exige une commission nette valide', () => {
+  assert.deepEqual(normaliserFeuilleCaisse(true, '150.250'), {
+    feuilleCaisse: true,
+    commissionNette: 150.25,
+  });
+  assert.throws(() => normaliserFeuilleCaisse(true, ''), /commission nette est obligatoire/);
+  assert.throws(() => normaliserFeuilleCaisse(true, -1), /commission nette est obligatoire/);
+});
 
 test('une durée ferme impose la prime unique', () => {
   assert.deepEqual(normaliserDureeEtFractionnement('ferme', 'trimestriel'), {

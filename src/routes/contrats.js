@@ -7,7 +7,11 @@ const { lirePagination, reponsePaginee } = require('../pagination');
 const { journaliser, resumerLigneAudit } = require('../audit');
 const stockage = require('../stockage');
 const { calculerDateFin, validerDateFinFerme } = require('../dates-contrat');
-const { normaliserDureeEtFractionnement, typeDureeDepuisFractionnement } = require('../regles-contrat');
+const {
+  normaliserDureeEtFractionnement,
+  normaliserFeuilleCaisse,
+  typeDureeDepuisFractionnement,
+} = require('../regles-contrat');
 const { synchroniserProchaineEcheance } = require('../echeancier');
 
 const routeur = express.Router();
@@ -77,7 +81,7 @@ routeur.get('/', async (req, res) => {
     const resultat = await requete(
       `select c.id, c.numero_contrat, c.statut, c.date_effet, c.date_fin, c.duree_mois, c.fractionnement,
               case when c.fractionnement = 'prime_unique' then 'ferme' else 'rtr' end as type_duree,
-              c.prime_totale,
+              c.prime_totale, c.feuille_caisse, c.com_nette,
               cl.id as client_id, cl.nom as client_nom, cl.telephone as client_telephone,
               s.id as souscripteur_id, s.nom as souscripteur_nom,
               sl.id as societe_leasing_id, coalesce(nullif(c.societe_leasing, ''), sl.nom) as societe_leasing_nom,
@@ -304,6 +308,7 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
       numeroContrat, clientId, souscripteurId, societeLeasing, payeurId,
       compagnieId, produitId, typeContrat, immatriculation,
       dateEffet, dateFin, dureeMois, fractionnement, primeTotale,
+      feuilleCaisse, commissionNette,
     } = req.body || {};
 
     if (!numeroContrat || !clientId || !compagnieId || !produitId || !dateEffet || !fractionnement) {
@@ -314,6 +319,7 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
     }
     const dureeTechnique = dureeMois ?? 12;
     const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
+    const caisse = normaliserFeuilleCaisse(feuilleCaisse, commissionNette);
     const dateFinEnregistree = regles.typeDuree === 'ferme'
       ? validerDateFinFerme(dateEffet, dateFin)
       : calculerDateFin(dateEffet, dureeTechnique);
@@ -324,15 +330,16 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
            numero_contrat, client_id, souscripteur_id, societe_leasing, payeur_id,
            compagnie_id, produit_id, type_contrat, immatriculation,
            date_effet, duree_mois, fractionnement, date_fin, prime_totale,
+           feuille_caisse, com_nette,
            cree_par, modifie_par
-         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
+         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17)
          returning *`,
         [
           numeroContrat, clientId, souscripteurId || clientId, String(societeLeasing || '').trim() || null,
           payeurId || souscripteurId || clientId,
           compagnieId, produitId, typeContrat || null, immatriculation || null,
           dateEffet, Number(dureeTechnique), regles.fractionnement, dateFinEnregistree,
-          Number(primeTotale), req.utilisateur.id,
+          Number(primeTotale), caisse.feuilleCaisse, caisse.commissionNette, req.utilisateur.id,
         ]
       );
       await synchroniserProchaineEcheance(client, resultat.rows[0]);
@@ -351,6 +358,7 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
       numeroContrat, clientId, souscripteurId, societeLeasing, payeurId,
       compagnieId, produitId, typeContrat, immatriculation,
       dateEffet, dateFin, dureeMois, fractionnement, primeTotale, statut,
+      feuilleCaisse, commissionNette,
     } = req.body || {};
 
     if (!Number.isFinite(Number(primeTotale)) || Number(primeTotale) < 0) {
@@ -358,6 +366,7 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
     }
     const dureeTechnique = dureeMois ?? 12;
     const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
+    const caisse = normaliserFeuilleCaisse(feuilleCaisse, commissionNette);
     const dateFinEnregistree = regles.typeDuree === 'ferme'
       ? validerDateFinFerme(dateEffet, dateFin)
       : calculerDateFin(dateEffet, dureeTechnique);
@@ -368,14 +377,16 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
            numero_contrat = $1, client_id = $2, souscripteur_id = $3, societe_leasing = $4, payeur_id = $5,
            compagnie_id = $6, produit_id = $7, type_contrat = coalesce($8, type_contrat), immatriculation = $9,
            date_effet = $10, duree_mois = $11, fractionnement = $12, date_fin = $13,
-           prime_totale = $14, statut = coalesce($15, statut), modifie_par = $16, modifie_le = now()
-         where id = $17 and supprime_le is null
+           prime_totale = $14, feuille_caisse = $15, com_nette = $16,
+           statut = coalesce($17, statut), modifie_par = $18, modifie_le = now()
+         where id = $19 and supprime_le is null
          returning *`,
         [
           numeroContrat, clientId, souscripteurId || clientId, String(societeLeasing || '').trim() || null,
           payeurId || souscripteurId || clientId, compagnieId, produitId,
           typeContrat || null, immatriculation || null, dateEffet, Number(dureeTechnique), regles.fractionnement,
-          dateFinEnregistree, Number(primeTotale), statut || null, req.utilisateur.id, req.params.id,
+          dateFinEnregistree, Number(primeTotale), caisse.feuilleCaisse, caisse.commissionNette,
+          statut || null, req.utilisateur.id, req.params.id,
         ]
       );
       if (resultat.rowCount === 0) return null;
@@ -451,11 +462,11 @@ routeur.post('/:id/renouveler', exigerRole('admin', 'agent'), async (req, res) =
            numero_contrat, client_id, souscripteur_id, societe_leasing_id, societe_leasing, payeur_id,
            compagnie_id, produit_id, type_contrat, immatriculation,
            date_effet, duree_mois, fractionnement, date_fin,
-           prime_totale, com_brute, taux_retenue,
+           prime_totale, feuille_caisse, com_nette, com_brute, taux_retenue,
            statut, contrat_precedent, cree_par, modifie_par
          ) values (
            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-           $11, $12, $13, $14, $15, $16, $17, 'en_cours', $18, $19, $19
+           $11, $12, $13, $14, $15, false, null, $16, $17, 'en_cours', $18, $19, $19
          ) returning id`,
         [
           contrat.numero_contrat, contrat.client_id, contrat.souscripteur_id,

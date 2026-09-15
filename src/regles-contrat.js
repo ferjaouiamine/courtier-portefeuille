@@ -18,6 +18,17 @@ function moisDuFractionnement(fractionnement) {
   return MOIS_PAR_FRACTIONNEMENT[fractionnement] || null;
 }
 
+function normaliserFeuilleCaisse(feuilleCaisse, commissionNette) {
+  if (feuilleCaisse !== true) {
+    return { feuilleCaisse: false, commissionNette: null };
+  }
+  if (commissionNette === '' || commissionNette === null || commissionNette === undefined
+      || !Number.isFinite(Number(commissionNette)) || Number(commissionNette) < 0) {
+    throw erreurSaisie('La commission nette est obligatoire lorsque la feuille de caisse est disponible.');
+  }
+  return { feuilleCaisse: true, commissionNette: Number(commissionNette) };
+}
+
 function normaliserDureeEtFractionnement(typeDuree, fractionnement) {
   const typeNormalise = typeDuree || typeDureeDepuisFractionnement(fractionnement);
   if (!TYPES_DUREE.has(typeNormalise)) {
@@ -36,6 +47,7 @@ function normaliserDureeEtFractionnement(typeDuree, fractionnement) {
 module.exports = {
   FRACTIONNEMENTS_RTR,
   moisDuFractionnement,
+  normaliserFeuilleCaisse,
   normaliserDureeEtFractionnement,
   typeDureeDepuisFractionnement,
 };
