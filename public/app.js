@@ -664,6 +664,13 @@ function filtresContrats() {
 }
 
 async function chargerContrats() {
+  const entetePrime = $('#entete-contrats-prime')
+    || document.querySelector('#vue-contrats thead th:nth-child(8)');
+  const enteteCommission = $('#entete-contrats-commission-nette')
+    || document.querySelector('#vue-contrats thead th:nth-child(9)');
+  if (entetePrime) entetePrime.textContent = 'Prime';
+  if (enteteCommission) enteteCommission.textContent = 'Commission nette';
+
   await chargerReferentiels();
   const resultat = await api(`/api/contrats?${parametres({
     ...filtresContrats(), page: etat.pages.contrats, limite: 50,
