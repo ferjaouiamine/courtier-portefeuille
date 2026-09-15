@@ -674,8 +674,9 @@ async function chargerContrats() {
     <td>${echapper(ligne.compagnie_nom)}</td><td>${echapper(ligne.produit_nom)}</td>
     <td>${formaterDate(ligne.date_effet)}</td><td>${echapper(libelleTypeDuree(ligne))}</td>
     <td>${etiquetteFeuilleCaisse(ligne.feuille_caisse)}</td>
+    <td>${formaterMontant(ligne.prime_totale)}</td>
     <td class="commission-nette">${ligne.feuille_caisse ? formaterMontant(ligne.com_nette) : ''}</td>
-    <td>${formaterMontant(ligne.prime_totale)}</td><td>${echapper(libelleCode(ligne.statut))}</td></tr>`).join('');
+    <td>${echapper(libelleCode(ligne.statut))}</td></tr>`).join('');
   $('#etat-vide-contrats').hidden = lignes.length > 0;
   afficherPagination('contrats', resultat.pagination);
   $('#bouton-export-csv').href = `/api/export/portefeuille.csv?${parametres(filtresContrats())}`;
