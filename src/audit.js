@@ -10,7 +10,10 @@ const CHAMPS_VISIBLES = {
     'fractionnement', 'prime_totale', 'statut',
   ],
   echeances: ['type_echeance', 'numero_terme', 'date_echeance', 'montant_prime', 'statut'],
-  paiements: ['montant', 'mode_paiement', 'reference', 'date_paiement'],
+  paiements: [
+    'montant', 'mode_paiement', 'reference', 'date_paiement',
+    'feuille_caisse', 'com_nette', 'date_feuille_caisse',
+  ],
   relances: ['type_relance', 'note', 'effectuee_le'],
   pieces_jointes_contrats: ['nom_original', 'type_mime', 'taille_octets'],
 };

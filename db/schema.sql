@@ -288,15 +288,27 @@ create table if not exists paiements (
                   ('especes', 'cheque', 'virement', 'carte', 'autre')),
   reference     text,
   date_paiement date not null default current_date,
+  feuille_caisse boolean not null default false,
+  com_nette     numeric(12, 3),
+  date_feuille_caisse date,
   saisi_par     uuid references utilisateurs(id),
   cree_le       timestamptz not null default now(),
   supprime_le   timestamptz,
   supprime_par  uuid references utilisateurs(id)
 );
 alter table paiements add column if not exists organisation_id uuid default organisation_courante() references organisations(id);
+alter table paiements add column if not exists feuille_caisse boolean not null default false;
+alter table paiements add column if not exists com_nette numeric(12, 3);
+alter table paiements add column if not exists date_feuille_caisse date;
 update paiements p set organisation_id = e.organisation_id from echeances e
 where e.id = p.echeance_id and p.organisation_id is null;
 alter table paiements alter column organisation_id set not null;
+update paiements set com_nette = null, date_feuille_caisse = null where not feuille_caisse;
+alter table paiements drop constraint if exists ck_paiements_feuille_caisse_commission;
+alter table paiements add constraint ck_paiements_feuille_caisse_commission check (
+  (feuille_caisse and com_nette is not null and com_nette >= 0 and date_feuille_caisse is not null)
+  or (not feuille_caisse and com_nette is null and date_feuille_caisse is null)
+);
 
 create index if not exists ix_paiements_echeance on paiements (echeance_id);
 create index if not exists ix_paiements_organisation_date on paiements (organisation_id, date_paiement desc);

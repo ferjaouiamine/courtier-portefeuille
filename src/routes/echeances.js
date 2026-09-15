@@ -4,6 +4,7 @@ const { exigerConnexion, exigerRole } = require('../auth');
 const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
 const { completerTousLesEcheanciers, synchroniserProchaineEcheance } = require('../echeancier');
+const { normaliserFeuilleCaisse } = require('../regles-contrat');
 
 const routeur = express.Router();
 routeur.use(exigerConnexion);
@@ -72,7 +73,7 @@ routeur.post('/completer', exigerRole('admin', 'agent'), async (req, res) => {
 // Encaissement total ou partiel. Le statut de l'échéance est recalculé par trigger.
 routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) => {
   try {
-    const { montant, modePaiement, reference, datePaiement } = req.body || {};
+    const { montant, modePaiement, reference, datePaiement, feuilleCaisse, commissionNette } = req.body || {};
 
     if (!Number.isFinite(Number(montant)) || Number(montant) <= 0) {
       return res.status(400).json({ erreur: 'Le montant encaissé doit être supérieur à zéro.' });
@@ -80,6 +81,7 @@ routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) =>
     if (!MODES_PAIEMENT.includes(modePaiement)) {
       return res.status(400).json({ erreur: 'Mode de paiement invalide.' });
     }
+    const caisse = normaliserFeuilleCaisse(feuilleCaisse, commissionNette);
 
     const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const echeance = await client.query(
@@ -115,10 +117,18 @@ routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) =>
       }
 
       const paiement = await client.query(
-        `insert into paiements (echeance_id, montant, mode_paiement, reference, date_paiement, saisi_par)
-         values ($1, $2, $3, $4, coalesce($5, current_date), $6)
+        `insert into paiements (
+           echeance_id, montant, mode_paiement, reference, date_paiement,
+           feuille_caisse, com_nette, date_feuille_caisse, saisi_par
+         ) values (
+           $1, $2, $3, $4, coalesce($5, current_date),
+           $6, $7, case when $6 then coalesce($5, current_date) else null end, $8
+         )
          returning *`,
-        [req.params.id, montant, modePaiement, reference || null, datePaiement || null, req.utilisateur.id]
+        [
+          req.params.id, montant, modePaiement, reference || null, datePaiement || null,
+          caisse.feuilleCaisse, caisse.commissionNette, req.utilisateur.id,
+        ]
       );
 
       const statut = await client.query('select statut from echeances where id = $1', [req.params.id]);

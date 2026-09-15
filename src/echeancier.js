@@ -11,6 +11,36 @@ function calculerDateTerme(dateEffet, fractionnement, numeroTerme) {
   return calculerDateFin(dateEffet, mois * numero);
 }
 
+async function enregistrerPaiementInitial(client, contrat, utilisateurId, paiement = {}) {
+  const echeance = await client.query(
+    `insert into echeances (
+       contrat_id, type_echeance, numero_terme, date_echeance, montant_prime, montant_commission
+     ) values ($1, 'terme', 0, $2, $3, $4)
+     returning *`,
+    [contrat.id, contrat.date_effet, contrat.prime_totale, contrat.com_brute || 0]
+  );
+  const feuilleCaisse = paiement.feuilleCaisse === true;
+  const encaissement = await client.query(
+    `insert into paiements (
+       echeance_id, montant, mode_paiement, reference, date_paiement,
+       feuille_caisse, com_nette, date_feuille_caisse, saisi_par
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     returning *`,
+    [
+      echeance.rows[0].id,
+      contrat.prime_totale,
+      paiement.modePaiement || 'autre',
+      paiement.reference || 'Paiement initial à la souscription',
+      contrat.date_effet,
+      feuilleCaisse,
+      feuilleCaisse ? paiement.commissionNette : null,
+      feuilleCaisse ? contrat.date_effet : null,
+      utilisateurId,
+    ]
+  );
+  return { echeance: echeance.rows[0], paiement: encaissement.rows[0] };
+}
+
 async function synchroniserProchaineEcheance(client, contrat) {
   if (contrat.echeancier_personnalise) return null;
 
@@ -159,5 +189,6 @@ module.exports = {
   NOMBRE_ECHEANCES_FUTURES,
   calculerDateTerme,
   completerTousLesEcheanciers,
+  enregistrerPaiementInitial,
   synchroniserProchaineEcheance,
 };

@@ -166,6 +166,15 @@ function appliquerReglesFeuilleCaisse() {
   if (!disponible) commission.value = '';
 }
 
+function appliquerReglesFeuilleCaisseEncaissement() {
+  const disponible = $('#encaissement-feuille-caisse-oui').checked;
+  const commission = $('#encaissement-commission-nette');
+  $('#zone-encaissement-commission-nette').hidden = !disponible;
+  commission.disabled = !disponible;
+  commission.required = disponible;
+  if (!disponible) commission.value = '';
+}
+
 function parametres(objet) {
   const recherche = new URLSearchParams();
   Object.entries(objet).forEach(([cle, valeur]) => {
@@ -706,7 +715,9 @@ async function ouvrirFicheContrat(id) {
     <td>${formaterMontant(ligne.montant_prime)}</td>
     <td>${etiquetteStatutEcheance(ligne.statut)}</td></tr>`).join('');
   const paiements = contrat.paiements.map((ligne) => `<tr><td>${formaterDate(ligne.date_paiement)}</td>
-    <td>${formaterMontant(ligne.montant)}</td><td>${echapper(libelleCode(ligne.mode_paiement))}</td>
+    <td>${formaterMontant(ligne.montant)}</td><td>${etiquetteFeuilleCaisse(ligne.feuille_caisse)}</td>
+    <td class="commission-nette">${ligne.feuille_caisse ? formaterMontant(ligne.com_nette) : ''}</td>
+    <td>${echapper(libelleCode(ligne.mode_paiement))}</td>
     <td>${echapper(ligne.reference || '—')}</td></tr>`).join('');
   const historique = contrat.historique.map((ligne) => `<div class="entree-historique">
     <span class="date">${formaterDate(ligne.cree_le, true)}</span>
@@ -740,7 +751,7 @@ async function ouvrirFicheContrat(id) {
     <div class="carte"><h3>Échéancier complet</h3>${echeances
       ? `<div class="tableau-responsive"><table><thead><tr><th>Date</th><th>Montant</th><th>Statut</th></tr></thead><tbody>${echeances}</tbody></table></div>`
       : '<p class="etat-vide">Aucune échéance pour ce contrat.</p>'}</div>
-    <div class="carte"><h3>Paiements</h3>${paiements ? `<table><thead><tr><th>Date</th><th>Montant</th><th>Mode</th><th>Référence</th></tr></thead><tbody>${paiements}</tbody></table>` : '<p class="etat-vide">Aucun paiement.</p>'}</div>
+    <div class="carte"><h3>Paiements</h3>${paiements ? `<div class="tableau-responsive"><table><thead><tr><th>Date</th><th>Montant</th><th>Feuille de caisse</th><th>Commission nette</th><th>Mode</th><th>Référence</th></tr></thead><tbody>${paiements}</tbody></table></div>` : '<p class="etat-vide">Aucun paiement.</p>'}</div>
     <div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>`;
   await changerVue('fiche-contrat');
 }
@@ -882,6 +893,9 @@ async function ouvrirModaleContrat(contrat = null) {
   Object.entries(champs).forEach(([selecteur, valeur]) => { $(selecteur).value = valeur ?? ''; });
   $('#contrat-feuille-caisse-oui').checked = Boolean(contrat?.feuille_caisse);
   $('#contrat-feuille-caisse-non').checked = !contrat?.feuille_caisse;
+  $('#contrat-paiement-mode').value = 'autre';
+  $('#contrat-paiement-reference').value = '';
+  $$('[data-paiement-initial]').forEach((champ) => { champ.hidden = Boolean(contrat); });
   if (!contrat) $('#contrat-souscripteur').value = $('#contrat-client').value;
   appliquerReglesDureeContrat();
   appliquerReglesFeuilleCaisse();
@@ -931,6 +945,9 @@ async function actionDeleguee(event) {
       $('#encaissement-montant').value = Number(bouton.dataset.solde).toFixed(3);
       $('#encaissement-date').value = new Date().toISOString().slice(0, 10);
       $('#encaissement-reference').value = '';
+      $('#encaissement-feuille-caisse-non').checked = true;
+      $('#encaissement-feuille-caisse-oui').checked = false;
+      appliquerReglesFeuilleCaisseEncaissement();
       $('#modale-encaissement').showModal();
     } else if (action === 'relancer') {
       etat.echeanceId = id;
@@ -1040,6 +1057,8 @@ function brancherFormulaires() {
         feuilleCaisse: $('#contrat-feuille-caisse-oui').checked,
         commissionNette: $('#contrat-feuille-caisse-oui').checked
           ? Number($('#contrat-commission-nette').value) : null,
+        modePaiementInitial: $('#contrat-paiement-mode').value,
+        referencePaiementInitial: $('#contrat-paiement-reference').value.trim(),
       };
       const contrat = await api(id ? `/api/contrats/${id}` : '/api/contrats', {
         method: id ? 'PUT' : 'POST', body: JSON.stringify(corps),
@@ -1056,6 +1075,9 @@ function brancherFormulaires() {
         method: 'POST', body: JSON.stringify({
           montant: Number($('#encaissement-montant').value), modePaiement: $('#encaissement-mode').value,
           reference: $('#encaissement-reference').value.trim(), datePaiement: $('#encaissement-date').value || null,
+          feuilleCaisse: $('#encaissement-feuille-caisse-oui').checked,
+          commissionNette: $('#encaissement-feuille-caisse-oui').checked
+            ? Number($('#encaissement-commission-nette').value) : null,
         }),
       });
       $('#modale-encaissement').close();
@@ -1183,6 +1205,9 @@ function brancherEvenements() {
   $('#contrat-type-duree').addEventListener('change', appliquerReglesDureeContrat);
   $$('input[name="contrat-feuille-caisse"]').forEach((radio) => {
     radio.addEventListener('change', appliquerReglesFeuilleCaisse);
+  });
+  $$('input[name="encaissement-feuille-caisse"]').forEach((radio) => {
+    radio.addEventListener('change', appliquerReglesFeuilleCaisseEncaissement);
   });
   $('#contrat-client').addEventListener('change', () => {
     if (!etat.edition.contrat) {

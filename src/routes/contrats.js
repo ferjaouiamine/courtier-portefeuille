@@ -12,13 +12,14 @@ const {
   normaliserFeuilleCaisse,
   typeDureeDepuisFractionnement,
 } = require('../regles-contrat');
-const { synchroniserProchaineEcheance } = require('../echeancier');
+const { enregistrerPaiementInitial, synchroniserProchaineEcheance } = require('../echeancier');
 
 const routeur = express.Router();
 routeur.use(exigerConnexion);
 
 const TYPES_PIECES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 const TAILLE_MAX_PIECE = 4 * 1024 * 1024;
+const MODES_PAIEMENT = new Set(['especes', 'cheque', 'virement', 'carte', 'autre']);
 
 const televerserPiece = multer({
   storage: multer.memoryStorage(),
@@ -309,13 +310,17 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
       compagnieId, produitId, typeContrat, immatriculation,
       dateEffet, dateFin, dureeMois, fractionnement, primeTotale,
       feuilleCaisse, commissionNette,
+      modePaiementInitial, referencePaiementInitial,
     } = req.body || {};
 
     if (!numeroContrat || !clientId || !compagnieId || !produitId || !dateEffet || !fractionnement) {
       return res.status(400).json({ erreur: 'Merci de renseigner tous les champs obligatoires du contrat.' });
     }
-    if (!Number.isFinite(Number(primeTotale)) || Number(primeTotale) < 0) {
-      return res.status(400).json({ erreur: 'La prime doit être un montant positif ou nul.' });
+    if (!Number.isFinite(Number(primeTotale)) || Number(primeTotale) <= 0) {
+      return res.status(400).json({ erreur: 'La prime doit être supérieure à zéro.' });
+    }
+    if (modePaiementInitial && !MODES_PAIEMENT.has(modePaiementInitial)) {
+      return res.status(400).json({ erreur: 'Mode de paiement initial invalide.' });
     }
     const dureeTechnique = dureeMois ?? 12;
     const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
@@ -342,6 +347,12 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
           Number(primeTotale), caisse.feuilleCaisse, caisse.commissionNette, req.utilisateur.id,
         ]
       );
+      await enregistrerPaiementInitial(client, resultat.rows[0], req.utilisateur.id, {
+        modePaiement: modePaiementInitial || 'autre',
+        reference: String(referencePaiementInitial || '').trim() || null,
+        feuilleCaisse: caisse.feuilleCaisse,
+        commissionNette: caisse.commissionNette,
+      });
       await synchroniserProchaineEcheance(client, resultat.rows[0]);
       return resultat.rows[0];
     });

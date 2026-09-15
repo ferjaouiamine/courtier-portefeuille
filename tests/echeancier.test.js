@@ -6,8 +6,35 @@ const {
   NOMBRE_ECHEANCES_FUTURES,
   calculerDateTerme,
   completerTousLesEcheanciers,
+  enregistrerPaiementInitial,
   synchroniserProchaineEcheance,
 } = require('../src/echeancier');
+
+test('le paiement initial solde une échéance à la date d’effet', async () => {
+  const requetes = [];
+  const client = {
+    async query(texte, parametres) {
+      requetes.push({ texte, parametres });
+      if (texte.includes('insert into echeances')) return { rows: [{ id: 'echeance-0' }] };
+      return { rows: [{ id: 'paiement-0' }] };
+    },
+  };
+
+  const resultat = await enregistrerPaiementInitial(client, {
+    id: 'contrat-1', date_effet: '2026-09-15', prime_totale: '103.375', com_brute: '0',
+  }, 'utilisateur-1', {
+    modePaiement: 'cheque', reference: 'CH-001', feuilleCaisse: true, commissionNette: 9.034,
+  });
+
+  assert.equal(resultat.echeance.id, 'echeance-0');
+  assert.match(requetes[0].texte, /numero_terme, date_echeance/);
+  assert.deepEqual(requetes[0].parametres, ['contrat-1', '2026-09-15', '103.375', '0']);
+  assert.equal(requetes[1].parametres[0], 'echeance-0');
+  assert.equal(requetes[1].parametres[4], '2026-09-15');
+  assert.equal(requetes[1].parametres[5], true);
+  assert.equal(requetes[1].parametres[6], 9.034);
+  assert.equal(requetes[1].parametres[7], '2026-09-15');
+});
 
 test('chaque prochain terme reste ancré sur la date d’effet', () => {
   assert.equal(calculerDateTerme('2026-01-31', 'trimestriel', 1), '2026-04-30');

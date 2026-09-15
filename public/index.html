@@ -364,14 +364,26 @@
           </select>
         </label>
         <fieldset class="groupe-feuille-caisse">
-          <legend>Feuille de caisse</legend>
+          <legend>Feuille de caisse du premier paiement</legend>
           <div class="choix-binaire">
             <label class="non"><input type="radio" id="contrat-feuille-caisse-non" name="contrat-feuille-caisse" value="non" checked /><span>Non</span></label>
             <label class="oui"><input type="radio" id="contrat-feuille-caisse-oui" name="contrat-feuille-caisse" value="oui" /><span>Oui</span></label>
           </div>
         </fieldset>
-        <label id="zone-contrat-commission-nette" hidden>Commission nette (DT)
+        <label id="zone-contrat-commission-nette" hidden>Commission nette du premier paiement (DT)
           <input type="number" min="0" step="0.001" id="contrat-commission-nette" />
+        </label>
+        <label data-paiement-initial>Mode du premier paiement
+          <select id="contrat-paiement-mode">
+            <option value="especes">Espèces</option>
+            <option value="cheque">Chèque</option>
+            <option value="virement">Virement</option>
+            <option value="carte">Carte</option>
+            <option value="autre">Autre</option>
+          </select>
+        </label>
+        <label data-paiement-initial>Référence du premier paiement
+          <input type="text" id="contrat-paiement-reference" />
         </label>
         <label id="zone-contrat-fractionnement">Fréquence de paiement
           <select id="contrat-fractionnement" required>
@@ -395,7 +407,7 @@
           <input type="date" id="contrat-date-echeance" readonly />
         </label>
         <label>Prime totale (DT)
-          <input type="number" step="0.001" id="contrat-prime" required />
+          <input type="number" step="0.001" min="0.001" id="contrat-prime" required />
         </label>
       </div>
     </form>
@@ -426,6 +438,16 @@
         </label>
         <label>Date
           <input type="date" id="encaissement-date" />
+        </label>
+        <fieldset class="groupe-feuille-caisse">
+          <legend>Feuille de caisse</legend>
+          <div class="choix-binaire">
+            <label class="non"><input type="radio" id="encaissement-feuille-caisse-non" name="encaissement-feuille-caisse" value="non" checked /><span>Non</span></label>
+            <label class="oui"><input type="radio" id="encaissement-feuille-caisse-oui" name="encaissement-feuille-caisse" value="oui" /><span>Oui</span></label>
+          </div>
+        </fieldset>
+        <label id="zone-encaissement-commission-nette" hidden>Commission nette (DT)
+          <input type="number" min="0" step="0.001" id="encaissement-commission-nette" />
         </label>
       </div>
     </form>
