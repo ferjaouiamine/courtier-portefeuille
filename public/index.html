@@ -363,16 +363,6 @@
             <option value="rtr">RTR — Renouvelable par tacite reconduction</option>
           </select>
         </label>
-        <fieldset class="groupe-feuille-caisse">
-          <legend>Feuille de caisse du premier paiement</legend>
-          <div class="choix-binaire">
-            <label class="non"><input type="radio" id="contrat-feuille-caisse-non" name="contrat-feuille-caisse" value="non" checked /><span>Non</span></label>
-            <label class="oui"><input type="radio" id="contrat-feuille-caisse-oui" name="contrat-feuille-caisse" value="oui" /><span>Oui</span></label>
-          </div>
-        </fieldset>
-        <label id="zone-contrat-commission-nette" hidden>Commission nette du premier paiement (DT)
-          <input type="number" min="0" step="0.001" id="contrat-commission-nette" />
-        </label>
         <label data-paiement-initial>Mode du premier paiement
           <select id="contrat-paiement-mode">
             <option value="especes">Espèces</option>
@@ -418,7 +408,7 @@
   </dialog>
 
   <dialog id="modale-encaissement">
-    <div class="entete-modale"><h3>Encaisser</h3><button type="button" class="discret" data-fermer-modale>✕</button></div>
+    <div class="entete-modale"><h3 id="titre-modale-encaissement">Encaisser</h3><button type="button" class="discret" data-fermer-modale>✕</button></div>
     <form id="formulaire-encaissement" class="corps-modale">
       <div class="grille-formulaire">
         <label>Montant (DT)
@@ -449,11 +439,14 @@
         <label id="zone-encaissement-commission-nette" hidden>Commission nette (DT)
           <input type="number" min="0" step="0.001" id="encaissement-commission-nette" />
         </label>
+        <label id="zone-encaissement-date-feuille" hidden>Date de la feuille de caisse
+          <input type="date" id="encaissement-date-feuille" />
+        </label>
       </div>
     </form>
     <div class="pied-modale">
       <button type="button" data-fermer-modale>Annuler</button>
-      <button type="submit" form="formulaire-encaissement" class="principal">Enregistrer l'encaissement</button>
+      <button type="submit" form="formulaire-encaissement" id="bouton-enregistrer-encaissement" class="principal">Enregistrer l'encaissement</button>
     </div>
   </dialog>
 

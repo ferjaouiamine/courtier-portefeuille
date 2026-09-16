@@ -12,6 +12,17 @@ routeur.use(exigerConnexion);
 const MODES_PAIEMENT = ['especes', 'cheque', 'virement', 'carte', 'autre'];
 const TYPES_RELANCE = ['appel', 'sms', 'whatsapp', 'email', 'automatique'];
 
+async function synchroniserFeuilleCaisseContrat(client, echeanceId, caisse, utilisateurId) {
+  await client.query(
+    `update contrats c
+     set feuille_caisse = $2, com_nette = $3, modifie_par = $4, modifie_le = now()
+     from echeances e
+     where e.id = $1 and e.contrat_id = c.id
+       and e.type_echeance = 'terme' and e.numero_terme = 0`,
+    [echeanceId, caisse.feuilleCaisse, caisse.commissionNette, utilisateurId]
+  );
+}
+
 // Agenda des échéances (termes de prime + renouvellements), filtrable.
 routeur.get('/', async (req, res) => {
   try {
@@ -73,7 +84,10 @@ routeur.post('/completer', exigerRole('admin', 'agent'), async (req, res) => {
 // Encaissement total ou partiel. Le statut de l'échéance est recalculé par trigger.
 routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) => {
   try {
-    const { montant, modePaiement, reference, datePaiement, feuilleCaisse, commissionNette } = req.body || {};
+    const {
+      montant, modePaiement, reference, datePaiement,
+      feuilleCaisse, commissionNette, dateFeuilleCaisse,
+    } = req.body || {};
 
     if (!Number.isFinite(Number(montant)) || Number(montant) <= 0) {
       return res.status(400).json({ erreur: 'Le montant encaissé doit être supérieur à zéro.' });
@@ -122,14 +136,15 @@ routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) =>
            feuille_caisse, com_nette, date_feuille_caisse, saisi_par
          ) values (
            $1, $2, $3, $4, coalesce($5, current_date),
-           $6, $7, case when $6 then coalesce($5, current_date) else null end, $8
+           $6, $7, case when $6 then coalesce($8, $5, current_date) else null end, $9
          )
          returning *`,
         [
           req.params.id, montant, modePaiement, reference || null, datePaiement || null,
-          caisse.feuilleCaisse, caisse.commissionNette, req.utilisateur.id,
+          caisse.feuilleCaisse, caisse.commissionNette, dateFeuilleCaisse || null, req.utilisateur.id,
         ]
       );
+      await synchroniserFeuilleCaisseContrat(client, req.params.id, caisse, req.utilisateur.id);
 
       const statut = await client.query('select statut from echeances where id = $1', [req.params.id]);
       let prochaineEcheance = null;
@@ -156,6 +171,76 @@ routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) =>
     res.status(201).json(resultat);
   } catch (erreur) {
     gererErreur(res, erreur, 'echeances.encaissement');
+  }
+});
+
+// Modification complète d'un paiement existant depuis la fiche contrat.
+routeur.put('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const {
+      montant, modePaiement, reference, datePaiement,
+      feuilleCaisse, commissionNette, dateFeuilleCaisse,
+    } = req.body || {};
+    if (!Number.isFinite(Number(montant)) || Number(montant) <= 0) {
+      return res.status(400).json({ erreur: 'Le montant encaissé doit être supérieur à zéro.' });
+    }
+    if (!MODES_PAIEMENT.includes(modePaiement)) {
+      return res.status(400).json({ erreur: 'Mode de paiement invalide.' });
+    }
+    const caisse = normaliserFeuilleCaisse(feuilleCaisse, commissionNette);
+
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
+      const paiementExistant = await client.query(
+        `select p.*, e.montant_prime
+         from paiements p
+         join echeances e on e.id = p.echeance_id and e.supprime_le is null
+         join contrats c on c.id = e.contrat_id and c.supprime_le is null
+         where p.id = $1 and p.echeance_id = $2 and p.supprime_le is null
+         for update of p, e`,
+        [req.params.paiementId, req.params.id]
+      );
+      if (paiementExistant.rowCount === 0) return null;
+
+      const ligne = paiementExistant.rows[0];
+      const autresPaiements = await client.query(
+        `select coalesce(sum(montant), 0) as total
+         from paiements
+         where echeance_id = $1 and id <> $2 and supprime_le is null`,
+        [req.params.id, req.params.paiementId]
+      );
+      const disponibleMilliemes = Math.round(
+        (Number(ligne.montant_prime) - Number(autresPaiements.rows[0].total)) * 1000
+      );
+      if (Math.round(Number(montant) * 1000) > disponibleMilliemes) {
+        const erreur = new Error(`Le montant dépasse le maximum autorisé de ${(disponibleMilliemes / 1000).toFixed(3)} DT.`);
+        erreur.status = 400;
+        throw erreur;
+      }
+
+      const paiement = await client.query(
+        `update paiements set
+           montant = $1, mode_paiement = $2, reference = $3,
+           date_paiement = coalesce($4, date_paiement),
+           feuille_caisse = $5, com_nette = $6,
+           date_feuille_caisse = case when $5 then coalesce($7, $4, date_feuille_caisse, current_date) else null end,
+           saisi_par = $8
+         where id = $9 and echeance_id = $10 and supprime_le is null
+         returning *`,
+        [
+          montant, modePaiement, reference || null, datePaiement || null,
+          caisse.feuilleCaisse, caisse.commissionNette, dateFeuilleCaisse || null,
+          req.utilisateur.id, req.params.paiementId, req.params.id,
+        ]
+      );
+      await synchroniserFeuilleCaisseContrat(client, req.params.id, caisse, req.utilisateur.id);
+      const statut = await client.query('select statut from echeances where id = $1', [req.params.id]);
+      return { paiement: paiement.rows[0], statutEcheance: statut.rows[0]?.statut };
+    });
+
+    if (!resultat) return res.status(404).json({ erreur: 'Paiement introuvable.' });
+    return res.json(resultat);
+  } catch (erreur) {
+    return gererErreur(res, erreur, 'echeances.modification-paiement');
   }
 });
 
