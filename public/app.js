@@ -75,12 +75,10 @@ function etiquetteFeuilleCaisse(disponible) {
 
 function controleRetourFeuilleCaisse(ligne) {
   const id = echapper(ligne.id);
-  const nom = `retour-feuille-${id}`;
   const desactive = peutEcrire() ? '' : ' disabled';
-  return `<div class="controle-retour-feuille" role="radiogroup" aria-label="Retour feuille de caisse">
-    <label class="oui"><input type="radio" name="${nom}" value="true" data-retour-feuille-id="${id}"${ligne.retour_feuille_caisse ? ' checked' : ''}${desactive} /><span>Oui</span></label>
-    <label class="non"><input type="radio" name="${nom}" value="false" data-retour-feuille-id="${id}"${ligne.retour_feuille_caisse ? '' : ' checked'}${desactive} /><span>Non</span></label>
-  </div>`;
+  return `<label class="controle-retour-feuille" title="Feuille de caisse retournée">
+    <input type="checkbox" data-retour-feuille-id="${id}" aria-label="Feuille de caisse retournée"${ligne.retour_feuille_caisse ? ' checked' : ''}${desactive} />
+  </label>`;
 }
 
 function libelleStatutEcheance(statut) {
@@ -1239,16 +1237,15 @@ function brancherEvenements() {
     const controle = event.target.closest('input[data-retour-feuille-id]');
     if (!controle) return;
     const groupe = controle.closest('.controle-retour-feuille');
-    const valeurPrecedente = controle.value !== 'true';
+    const valeurPrecedente = !controle.checked;
     $$('input', groupe).forEach((input) => { input.disabled = true; });
     try {
       await api(`/api/contrats/${controle.dataset.retourFeuilleId}/retour-feuille-caisse`, {
-        method: 'PATCH', body: JSON.stringify({ retourFeuilleCaisse: controle.value === 'true' }),
+        method: 'PATCH', body: JSON.stringify({ retourFeuilleCaisse: controle.checked }),
       });
       afficherSucces('Retour feuille de caisse mis à jour.', $('#vue-contrats'));
     } catch (erreur) {
-      const precedent = $(`input[value="${valeurPrecedente}"]`, groupe);
-      if (precedent) precedent.checked = true;
+      controle.checked = valeurPrecedente;
       afficherErreur(erreur.message, $('#vue-contrats'));
     } finally {
       $$('input', groupe).forEach((input) => { input.disabled = !peutEcrire(); });
