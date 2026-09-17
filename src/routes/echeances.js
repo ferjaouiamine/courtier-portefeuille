@@ -283,22 +283,6 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
         erreur.status = 400;
         throw erreur;
       }
-      if (statut === 'payee' && totalRegle + tolerance < montantEcheance) {
-        const erreur = new Error("Le statut payé exige que la totalité de l'échéance soit encaissée.");
-        erreur.status = 400;
-        throw erreur;
-      }
-      if (statut === 'partielle' && !(totalRegle > 0 && totalRegle + tolerance < montantEcheance)) {
-        const erreur = new Error('Le statut partielle exige un encaissement partiel inférieur au montant.');
-        erreur.status = 400;
-        throw erreur;
-      }
-      if (['a_venir', 'impayee'].includes(statut) && totalRegle > tolerance) {
-        const erreur = new Error('Une échéance avec un paiement doit être partielle ou payée.');
-        erreur.status = 400;
-        throw erreur;
-      }
-
       const echeance = await client.query(
         `update echeances set date_echeance = $1, montant_prime = $2, statut = $3
          where id = $4 and supprime_le is null returning *`,

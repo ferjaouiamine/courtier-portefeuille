@@ -147,12 +147,7 @@ routeur.get('/:id', async (req, res) => {
     }
 
     const echeances = await requete(
-      `select e.*,
-              case
-                when e.statut = 'a_venir' and e.date_echeance < current_date then 'impayee'
-                else e.statut
-              end as statut,
-              coalesce(pmt.montant_regle, 0) as montant_regle
+      `select e.*, coalesce(pmt.montant_regle, 0) as montant_regle
        from echeances e
        left join lateral (
          select sum(montant) as montant_regle from paiements
