@@ -15,11 +15,12 @@ const TYPES_RELANCE = ['appel', 'sms', 'whatsapp', 'email', 'automatique'];
 async function synchroniserFeuilleCaisseContrat(client, echeanceId, caisse, utilisateurId) {
   await client.query(
     `update contrats c
-     set feuille_caisse = $2, com_nette = $3, modifie_par = $4, modifie_le = now()
+     set feuille_caisse = $2, com_nette = $3, com_nette_saisie = $4,
+         modifie_par = $5, modifie_le = now()
      from echeances e
      where e.id = $1 and e.contrat_id = c.id
        and e.type_echeance = 'terme' and e.numero_terme = 0`,
-    [echeanceId, caisse.feuilleCaisse, caisse.commissionNette, utilisateurId]
+    [echeanceId, caisse.feuilleCaisse, caisse.commissionNette, caisse.commissionNetteSaisie, utilisateurId]
   );
 }
 
@@ -133,15 +134,16 @@ routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) =>
       const paiement = await client.query(
         `insert into paiements (
            echeance_id, montant, mode_paiement, reference, date_paiement,
-           feuille_caisse, com_nette, date_feuille_caisse, saisi_par
+           feuille_caisse, com_nette, com_nette_saisie, date_feuille_caisse, saisi_par
          ) values (
            $1, $2, $3, $4, coalesce($5, current_date),
-           $6, $7, case when $6 then coalesce($8, $5, current_date) else null end, $9
+           $6, $7, $8, case when $6 then coalesce($9, $5, current_date) else null end, $10
          )
          returning *`,
         [
           req.params.id, montant, modePaiement, reference || null, datePaiement || null,
-          caisse.feuilleCaisse, caisse.commissionNette, dateFeuilleCaisse || null, req.utilisateur.id,
+          caisse.feuilleCaisse, caisse.commissionNette, caisse.commissionNetteSaisie,
+          dateFeuilleCaisse || null, req.utilisateur.id,
         ]
       );
       await synchroniserFeuilleCaisseContrat(client, req.params.id, caisse, req.utilisateur.id);
@@ -221,14 +223,14 @@ routeur.put('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (r
         `update paiements set
            montant = $1, mode_paiement = $2, reference = $3,
            date_paiement = coalesce($4, date_paiement),
-           feuille_caisse = $5, com_nette = $6,
-           date_feuille_caisse = case when $5 then coalesce($7, $4, date_feuille_caisse, current_date) else null end,
-           saisi_par = $8
-         where id = $9 and echeance_id = $10 and supprime_le is null
+           feuille_caisse = $5, com_nette = $6, com_nette_saisie = $7,
+           date_feuille_caisse = case when $5 then coalesce($8, $4, date_feuille_caisse, current_date) else null end,
+           saisi_par = $9
+         where id = $10 and echeance_id = $11 and supprime_le is null
          returning *`,
         [
           montant, modePaiement, reference || null, datePaiement || null,
-          caisse.feuilleCaisse, caisse.commissionNette, dateFeuilleCaisse || null,
+          caisse.feuilleCaisse, caisse.commissionNette, caisse.commissionNetteSaisie, dateFeuilleCaisse || null,
           req.utilisateur.id, req.params.paiementId, req.params.id,
         ]
       );
@@ -241,6 +243,78 @@ routeur.put('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (r
     return res.json(resultat);
   } catch (erreur) {
     return gererErreur(res, erreur, 'echeances.modification-paiement');
+  }
+});
+
+// Modification manuelle d'une ligne de l'échéancier depuis la fiche contrat.
+routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const { dateEcheance, montant, statut } = req.body || {};
+    const statuts = new Set(['a_venir', 'partielle', 'payee', 'impayee']);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateEcheance || ''))) {
+      return res.status(400).json({ erreur: "La date de l'échéance est obligatoire." });
+    }
+    if (!Number.isFinite(Number(montant)) || Number(montant) <= 0) {
+      return res.status(400).json({ erreur: "Le montant de l'échéance doit être supérieur à zéro." });
+    }
+    if (!statuts.has(statut)) return res.status(400).json({ erreur: "Statut d'échéance invalide." });
+
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
+      const existante = await client.query(
+        `select e.id, e.contrat_id
+         from echeances e
+         join contrats c on c.id = e.contrat_id and c.supprime_le is null
+         where e.id = $1 and e.supprime_le is null
+         for update of e`,
+        [req.params.id]
+      );
+      if (existante.rowCount === 0) return null;
+
+      const paiements = await client.query(
+        `select coalesce(sum(montant), 0) as montant_regle
+         from paiements where echeance_id = $1 and supprime_le is null`,
+        [req.params.id]
+      );
+      const totalRegle = Number(paiements.rows[0].montant_regle);
+      const montantEcheance = Number(montant);
+      const tolerance = 0.0005;
+      if (montantEcheance + tolerance < totalRegle) {
+        const erreur = new Error(`Le montant ne peut pas être inférieur aux paiements déjà saisis (${totalRegle.toFixed(3)} DT).`);
+        erreur.status = 400;
+        throw erreur;
+      }
+      if (statut === 'payee' && totalRegle + tolerance < montantEcheance) {
+        const erreur = new Error("Le statut payé exige que la totalité de l'échéance soit encaissée.");
+        erreur.status = 400;
+        throw erreur;
+      }
+      if (statut === 'partielle' && !(totalRegle > 0 && totalRegle + tolerance < montantEcheance)) {
+        const erreur = new Error('Le statut partielle exige un encaissement partiel inférieur au montant.');
+        erreur.status = 400;
+        throw erreur;
+      }
+      if (['a_venir', 'impayee'].includes(statut) && totalRegle > tolerance) {
+        const erreur = new Error('Une échéance avec un paiement doit être partielle ou payée.');
+        erreur.status = 400;
+        throw erreur;
+      }
+
+      const echeance = await client.query(
+        `update echeances set date_echeance = $1, montant_prime = $2, statut = $3
+         where id = $4 and supprime_le is null returning *`,
+        [dateEcheance, montantEcheance, statut, req.params.id]
+      );
+      await client.query(
+        `update contrats set echeancier_personnalise = true, modifie_par = $1, modifie_le = now()
+         where id = $2`,
+        [req.utilisateur.id, existante.rows[0].contrat_id]
+      );
+      return echeance.rows[0];
+    });
+    if (!resultat) return res.status(404).json({ erreur: 'Échéance introuvable.' });
+    return res.json(resultat);
+  } catch (erreur) {
+    return gererErreur(res, erreur, 'echeances.modification');
   }
 });
 

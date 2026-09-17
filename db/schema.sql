@@ -130,6 +130,7 @@ create table if not exists contrats (
   com_brute         numeric(12, 3) not null default 0 check (com_brute >= 0),
   taux_retenue      numeric(5, 4) not null default 0.10 check (taux_retenue between 0 and 1),
   com_nette         numeric(12, 3),
+  com_nette_saisie  text,
   statut            text not null default 'en_cours' check (statut in
                       ('en_cours', 'renouvele', 'resilie', 'archive')),
   contrat_precedent uuid references contrats(id),
@@ -151,6 +152,7 @@ alter table contrats add column if not exists societe_leasing_id uuid references
 alter table contrats add column if not exists societe_leasing text;
 alter table contrats add column if not exists payeur_id uuid references clients(id);
 alter table contrats add column if not exists feuille_caisse boolean not null default false;
+alter table contrats add column if not exists com_nette_saisie text;
 alter table contrats add column if not exists organisation_id uuid default organisation_courante() references organisations(id);
 update contrats set organisation_id = '00000000-0000-4000-8000-000000000001' where organisation_id is null;
 alter table contrats alter column organisation_id set not null;
@@ -183,6 +185,9 @@ $$;
 update contrats set feuille_caisse = true
 where not feuille_caisse and com_nette is not null and com_nette > 0;
 update contrats set com_nette = null where not feuille_caisse;
+update contrats set com_nette_saisie = com_nette::text
+where feuille_caisse and com_nette is not null and nullif(trim(com_nette_saisie), '') is null;
+update contrats set com_nette_saisie = null where not feuille_caisse;
 alter table contrats drop constraint if exists ck_contrats_feuille_caisse_commission;
 alter table contrats add constraint ck_contrats_feuille_caisse_commission check (
   (feuille_caisse and com_nette is not null and com_nette >= 0)
@@ -290,6 +295,7 @@ create table if not exists paiements (
   date_paiement date not null default current_date,
   feuille_caisse boolean not null default false,
   com_nette     numeric(12, 3),
+  com_nette_saisie text,
   date_feuille_caisse date,
   saisi_par     uuid references utilisateurs(id),
   cree_le       timestamptz not null default now(),
@@ -299,11 +305,15 @@ create table if not exists paiements (
 alter table paiements add column if not exists organisation_id uuid default organisation_courante() references organisations(id);
 alter table paiements add column if not exists feuille_caisse boolean not null default false;
 alter table paiements add column if not exists com_nette numeric(12, 3);
+alter table paiements add column if not exists com_nette_saisie text;
 alter table paiements add column if not exists date_feuille_caisse date;
 update paiements p set organisation_id = e.organisation_id from echeances e
 where e.id = p.echeance_id and p.organisation_id is null;
 alter table paiements alter column organisation_id set not null;
 update paiements set com_nette = null, date_feuille_caisse = null where not feuille_caisse;
+update paiements set com_nette_saisie = com_nette::text
+where feuille_caisse and com_nette is not null and nullif(trim(com_nette_saisie), '') is null;
+update paiements set com_nette_saisie = null where not feuille_caisse;
 alter table paiements drop constraint if exists ck_paiements_feuille_caisse_commission;
 alter table paiements add constraint ck_paiements_feuille_caisse_commission check (
   (feuille_caisse and com_nette is not null and com_nette >= 0 and date_feuille_caisse is not null)
@@ -698,6 +708,7 @@ select
   ,pa.id as payeur_id, pa.nom as payeur_nom
   ,c.organisation_id
   ,c.feuille_caisse
+  ,c.com_nette_saisie
 from contrats c
 join clients cl on cl.id = c.client_id and cl.supprime_le is null
 left join clients s on s.id = c.souscripteur_id

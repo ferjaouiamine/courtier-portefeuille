@@ -23,8 +23,8 @@ async function enregistrerPaiementInitial(client, contrat, utilisateurId, paieme
   const encaissement = await client.query(
     `insert into paiements (
        echeance_id, montant, mode_paiement, reference, date_paiement,
-       feuille_caisse, com_nette, date_feuille_caisse, saisi_par
-     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       feuille_caisse, com_nette, com_nette_saisie, date_feuille_caisse, saisi_par
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      returning *`,
     [
       echeance.rows[0].id,
@@ -34,6 +34,7 @@ async function enregistrerPaiementInitial(client, contrat, utilisateurId, paieme
       contrat.date_effet,
       feuilleCaisse,
       feuilleCaisse ? paiement.commissionNette : null,
+      feuilleCaisse ? paiement.commissionNetteSaisie : null,
       feuilleCaisse ? contrat.date_effet : null,
       utilisateurId,
     ]

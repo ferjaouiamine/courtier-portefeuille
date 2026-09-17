@@ -437,7 +437,7 @@
           </div>
         </fieldset>
         <label id="zone-encaissement-commission-nette" hidden>Commission nette (DT)
-          <input type="number" min="0" step="0.001" id="encaissement-commission-nette" />
+          <input type="text" inputmode="decimal" id="encaissement-commission-nette" placeholder="Ex. Commission 9,034 DT" />
         </label>
         <label id="zone-encaissement-date-feuille" hidden>Date de la feuille de caisse
           <input type="date" id="encaissement-date-feuille" />
@@ -447,6 +447,32 @@
     <div class="pied-modale">
       <button type="button" data-fermer-modale>Annuler</button>
       <button type="submit" form="formulaire-encaissement" id="bouton-enregistrer-encaissement" class="principal">Enregistrer l'encaissement</button>
+    </div>
+  </dialog>
+
+  <dialog id="modale-echeance">
+    <div class="entete-modale"><h3>Modifier l'échéance</h3><button type="button" class="discret" data-fermer-modale>&times;</button></div>
+    <form id="formulaire-echeance" class="corps-modale">
+      <div class="grille-formulaire">
+        <label>Date
+          <input type="date" id="echeance-date" required />
+        </label>
+        <label>Montant (DT)
+          <input type="number" step="0.001" min="0.001" id="echeance-montant" required />
+        </label>
+        <label>Statut
+          <select id="echeance-statut" required>
+            <option value="a_venir">À venir</option>
+            <option value="impayee">Impayée</option>
+            <option value="partielle">Partielle</option>
+            <option value="payee">Payée</option>
+          </select>
+        </label>
+      </div>
+    </form>
+    <div class="pied-modale">
+      <button type="button" data-fermer-modale>Annuler</button>
+      <button type="submit" form="formulaire-echeance" class="principal">Enregistrer les modifications</button>
     </div>
   </dialog>
 

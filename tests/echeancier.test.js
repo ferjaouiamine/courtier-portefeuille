@@ -23,7 +23,8 @@ test('le paiement initial solde une échéance à la date d’effet', async () =
   const resultat = await enregistrerPaiementInitial(client, {
     id: 'contrat-1', date_effet: '2026-09-15', prime_totale: '103.375', com_brute: '0',
   }, 'utilisateur-1', {
-    modePaiement: 'cheque', reference: 'CH-001', feuilleCaisse: true, commissionNette: 9.034,
+    modePaiement: 'cheque', reference: 'CH-001', feuilleCaisse: true,
+    commissionNette: 9.034, commissionNetteSaisie: 'Commission 9,034 DT',
   });
 
   assert.equal(resultat.echeance.id, 'echeance-0');
@@ -33,7 +34,8 @@ test('le paiement initial solde une échéance à la date d’effet', async () =
   assert.equal(requetes[1].parametres[4], '2026-09-15');
   assert.equal(requetes[1].parametres[5], true);
   assert.equal(requetes[1].parametres[6], 9.034);
-  assert.equal(requetes[1].parametres[7], '2026-09-15');
+  assert.equal(requetes[1].parametres[7], 'Commission 9,034 DT');
+  assert.equal(requetes[1].parametres[8], '2026-09-15');
 });
 
 test('chaque prochain terme reste ancré sur la date d’effet', () => {

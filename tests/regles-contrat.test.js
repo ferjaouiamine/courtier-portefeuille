@@ -13,6 +13,7 @@ test('une feuille de caisse absente impose une commission nette vide', () => {
   assert.deepEqual(normaliserFeuilleCaisse(false, 150), {
     feuilleCaisse: false,
     commissionNette: null,
+    commissionNetteSaisie: null,
   });
 });
 
@@ -20,8 +21,15 @@ test('une feuille de caisse disponible exige une commission nette valide', () =>
   assert.deepEqual(normaliserFeuilleCaisse(true, '150.250'), {
     feuilleCaisse: true,
     commissionNette: 150.25,
+    commissionNetteSaisie: '150.250',
+  });
+  assert.deepEqual(normaliserFeuilleCaisse(true, 'Commission 1 250,375 DT'), {
+    feuilleCaisse: true,
+    commissionNette: 1250.375,
+    commissionNetteSaisie: 'Commission 1 250,375 DT',
   });
   assert.throws(() => normaliserFeuilleCaisse(true, ''), /commission nette est obligatoire/);
+  assert.throws(() => normaliserFeuilleCaisse(true, 'non calculée'), /commission nette est obligatoire/);
   assert.throws(() => normaliserFeuilleCaisse(true, -1), /commission nette est obligatoire/);
 });
 

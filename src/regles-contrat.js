@@ -20,13 +20,28 @@ function moisDuFractionnement(fractionnement) {
 
 function normaliserFeuilleCaisse(feuilleCaisse, commissionNette) {
   if (feuilleCaisse !== true) {
-    return { feuilleCaisse: false, commissionNette: null };
+    return { feuilleCaisse: false, commissionNette: null, commissionNetteSaisie: null };
   }
-  if (commissionNette === '' || commissionNette === null || commissionNette === undefined
-      || !Number.isFinite(Number(commissionNette)) || Number(commissionNette) < 0) {
+  const commissionNetteSaisie = String(commissionNette ?? '').trim();
+  const correspondance = commissionNetteSaisie.match(/-?\d[\d\s.,]*/);
+  let valeurNormalisee = correspondance?.[0]?.replace(/\s/g, '') || '';
+  const derniereVirgule = valeurNormalisee.lastIndexOf(',');
+  const dernierPoint = valeurNormalisee.lastIndexOf('.');
+  const separateurDecimal = Math.max(derniereVirgule, dernierPoint);
+  if (separateurDecimal >= 0) {
+    const entiers = valeurNormalisee.slice(0, separateurDecimal).replace(/[.,]/g, '');
+    const decimales = valeurNormalisee.slice(separateurDecimal + 1).replace(/[.,]/g, '');
+    valeurNormalisee = decimales ? `${entiers}.${decimales}` : entiers;
+  }
+  const valeurNumerique = Number(valeurNormalisee);
+  if (!commissionNetteSaisie || !correspondance || !Number.isFinite(valeurNumerique) || valeurNumerique < 0) {
     throw erreurSaisie('La commission nette est obligatoire lorsque la feuille de caisse est disponible.');
   }
-  return { feuilleCaisse: true, commissionNette: Number(commissionNette) };
+  return {
+    feuilleCaisse: true,
+    commissionNette: Math.round(valeurNumerique * 1000) / 1000,
+    commissionNetteSaisie,
+  };
 }
 
 function normaliserDureeEtFractionnement(typeDuree, fractionnement) {

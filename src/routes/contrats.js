@@ -81,7 +81,7 @@ routeur.get('/', async (req, res) => {
     const resultat = await requete(
       `select c.id, c.numero_contrat, c.statut, c.date_effet, c.date_fin, c.duree_mois, c.fractionnement,
               case when c.fractionnement = 'prime_unique' then 'ferme' else 'rtr' end as type_duree,
-              c.prime_totale, c.feuille_caisse, c.com_nette,
+              c.prime_totale, c.feuille_caisse, c.com_nette, c.com_nette_saisie,
               cl.id as client_id, cl.nom as client_nom, cl.telephone as client_telephone,
               s.id as souscripteur_id, s.nom as souscripteur_nom,
               sl.id as societe_leasing_id, coalesce(nullif(c.societe_leasing, ''), sl.nom) as societe_leasing_nom,
