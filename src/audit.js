@@ -7,7 +7,8 @@ const CHAMPS_VISIBLES = {
   clients: ['type_client', 'nom', 'cin_ou_matricule', 'telephone', 'code_client_finasure', 'date_naissance'],
   contrats: [
     'numero_contrat', 'societe_leasing', 'immatriculation', 'date_effet', 'date_fin',
-    'fractionnement', 'prime_totale', 'feuille_caisse', 'com_nette', 'com_nette_saisie', 'statut',
+    'fractionnement', 'prime_totale', 'feuille_caisse', 'retour_feuille_caisse',
+    'com_nette', 'com_nette_saisie', 'remarque', 'statut',
   ],
   echeances: ['type_echeance', 'numero_terme', 'date_echeance', 'montant_prime', 'statut'],
   paiements: [
@@ -44,8 +45,10 @@ const LIBELLES_CHAMPS = {
   montant_prime: 'Montant de la prime',
   montant: 'Montant',
   feuille_caisse: 'Feuille de caisse',
+  retour_feuille_caisse: 'Retour feuille de caisse',
   com_nette: 'Commission nette comptable',
   com_nette_saisie: 'Saisie de la commission nette',
+  remarque: 'Remarque',
   mode_paiement: 'Mode de paiement',
   reference: 'Référence',
   date_paiement: 'Date de paiement',

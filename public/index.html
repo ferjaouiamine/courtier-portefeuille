@@ -114,7 +114,7 @@
             <input type="search" id="filtre-recherche-echeance" placeholder="Client ou n° contrat" />
           </label>
         </div>
-        <div class="carte" style="padding:0">
+        <div class="carte tableau-responsive" style="padding:0">
           <table>
             <thead>
               <tr>
@@ -171,9 +171,9 @@
             <thead>
               <tr>
                 <th>N° contrat</th><th>Client</th><th>Compagnie</th><th>Produit</th>
-                <th>Effet</th><th>Durée</th><th>Feuille de caisse</th>
+                <th>Effet</th><th>Durée</th><th>Feuille de caisse</th><th>Retour feuille de caisse</th>
                 <th id="entete-contrats-prime">Prime</th>
-                <th id="entete-contrats-commission-nette">Commission nette</th><th>Statut</th>
+                <th id="entete-contrats-commission-nette">Commission nette</th><th>Remarque</th><th>Statut</th>
               </tr>
             </thead>
             <tbody id="corps-tableau-contrats"></tbody>
@@ -398,6 +398,16 @@
         </label>
         <label>Prime totale (DT)
           <input type="number" step="0.001" min="0.001" id="contrat-prime" required />
+        </label>
+        <fieldset class="groupe-feuille-caisse">
+          <legend>Retour feuille de caisse</legend>
+          <div class="choix-binaire">
+            <label class="non"><input type="radio" id="contrat-retour-feuille-non" name="contrat-retour-feuille" value="non" checked /><span>Non</span></label>
+            <label class="oui"><input type="radio" id="contrat-retour-feuille-oui" name="contrat-retour-feuille" value="oui" /><span>Oui</span></label>
+          </div>
+        </fieldset>
+        <label class="pleine-largeur">Remarque
+          <textarea id="contrat-remarque" rows="3" maxlength="2000" placeholder="Remarque concernant le contrat"></textarea>
         </label>
       </div>
     </form>

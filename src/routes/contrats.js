@@ -81,7 +81,14 @@ routeur.get('/', async (req, res) => {
     const resultat = await requete(
       `select c.id, c.numero_contrat, c.statut, c.date_effet, c.date_fin, c.duree_mois, c.fractionnement,
               case when c.fractionnement = 'prime_unique' then 'ferme' else 'rtr' end as type_duree,
-              c.prime_totale, c.feuille_caisse, c.com_nette, c.com_nette_saisie,
+              c.prime_totale,
+              case when c.feuille_caisse and exists (
+                select 1 from echeances ef
+                where ef.contrat_id = c.id and ef.supprime_le is null and ef.statut <> 'payee'
+                  and ef.date_echeance <= current_date
+                  and ef.date_echeance > coalesce(c.feuille_caisse_maj_le, c.date_effet)
+              ) then false else c.feuille_caisse end as feuille_caisse,
+              c.retour_feuille_caisse, c.remarque, c.com_nette, c.com_nette_saisie,
               cl.id as client_id, cl.nom as client_nom, cl.telephone as client_telephone,
               s.id as souscripteur_id, s.nom as souscripteur_nom,
               sl.id as societe_leasing_id, coalesce(nullif(c.societe_leasing, ''), sl.nom) as societe_leasing_nom,
@@ -113,6 +120,12 @@ routeur.get('/:id', async (req, res) => {
   try {
     const contrat = await requete(
       `select c.*,
+              case when c.feuille_caisse and exists (
+                select 1 from echeances ef
+                where ef.contrat_id = c.id and ef.supprime_le is null and ef.statut <> 'payee'
+                  and ef.date_echeance <= current_date
+                  and ef.date_echeance > coalesce(c.feuille_caisse_maj_le, c.date_effet)
+              ) then false else c.feuille_caisse end as feuille_caisse,
               case when c.fractionnement = 'prime_unique' then 'ferme' else 'rtr' end as type_duree,
               cl.nom as client_nom, cl.telephone as client_telephone,
               s.nom as souscripteur_nom,
@@ -308,7 +321,7 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
       numeroContrat, clientId, souscripteurId, societeLeasing, payeurId,
       compagnieId, produitId, typeContrat, immatriculation,
       dateEffet, dateFin, dureeMois, fractionnement, primeTotale,
-      modePaiementInitial, referencePaiementInitial,
+      modePaiementInitial, referencePaiementInitial, retourFeuilleCaisse, remarque,
     } = req.body || {};
 
     if (!numeroContrat || !clientId || !compagnieId || !produitId || !dateEffet || !fractionnement) {
@@ -319,6 +332,10 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
     }
     if (modePaiementInitial && !MODES_PAIEMENT.has(modePaiementInitial)) {
       return res.status(400).json({ erreur: 'Mode de paiement initial invalide.' });
+    }
+    const remarqueNormalisee = String(remarque || '').trim();
+    if (remarqueNormalisee.length > 2000) {
+      return res.status(400).json({ erreur: 'La remarque ne doit pas dépasser 2 000 caractères.' });
     }
     const dureeTechnique = dureeMois ?? 12;
     const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
@@ -332,16 +349,17 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
            numero_contrat, client_id, souscripteur_id, societe_leasing, payeur_id,
            compagnie_id, produit_id, type_contrat, immatriculation,
            date_effet, duree_mois, fractionnement, date_fin, prime_totale,
-           feuille_caisse, com_nette,
+           feuille_caisse, retour_feuille_caisse, remarque, com_nette,
            cree_par, modifie_par
-         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, false, null, $15, $15)
+         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, false, $15, $16, null, $17, $17)
          returning *`,
         [
           numeroContrat, clientId, souscripteurId || clientId, String(societeLeasing || '').trim() || null,
           payeurId || souscripteurId || clientId,
           compagnieId, produitId, typeContrat || null, immatriculation || null,
           dateEffet, Number(dureeTechnique), regles.fractionnement, dateFinEnregistree,
-          Number(primeTotale), req.utilisateur.id,
+          Number(primeTotale), retourFeuilleCaisse === true, remarqueNormalisee || null,
+          req.utilisateur.id,
         ]
       );
       await enregistrerPaiementInitial(client, resultat.rows[0], req.utilisateur.id, {
@@ -366,10 +384,15 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
       numeroContrat, clientId, souscripteurId, societeLeasing, payeurId,
       compagnieId, produitId, typeContrat, immatriculation,
       dateEffet, dateFin, dureeMois, fractionnement, primeTotale, statut,
+      retourFeuilleCaisse, remarque,
     } = req.body || {};
 
     if (!Number.isFinite(Number(primeTotale)) || Number(primeTotale) < 0) {
       return res.status(400).json({ erreur: 'La prime doit être un montant positif ou nul.' });
+    }
+    const remarqueNormalisee = String(remarque || '').trim();
+    if (remarqueNormalisee.length > 2000) {
+      return res.status(400).json({ erreur: 'La remarque ne doit pas dépasser 2 000 caractères.' });
     }
     const dureeTechnique = dureeMois ?? 12;
     const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
@@ -383,15 +406,16 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
            numero_contrat = $1, client_id = $2, souscripteur_id = $3, societe_leasing = $4, payeur_id = $5,
            compagnie_id = $6, produit_id = $7, type_contrat = coalesce($8, type_contrat), immatriculation = $9,
            date_effet = $10, duree_mois = $11, fractionnement = $12, date_fin = $13,
-           prime_totale = $14,
-           statut = coalesce($15, statut), modifie_par = $16, modifie_le = now()
-         where id = $17 and supprime_le is null
+           prime_totale = $14, retour_feuille_caisse = coalesce($15, retour_feuille_caisse), remarque = $16,
+           statut = coalesce($17, statut), modifie_par = $18, modifie_le = now()
+         where id = $19 and supprime_le is null
          returning *`,
         [
           numeroContrat, clientId, souscripteurId || clientId, String(societeLeasing || '').trim() || null,
           payeurId || souscripteurId || clientId, compagnieId, produitId,
           typeContrat || null, immatriculation || null, dateEffet, Number(dureeTechnique), regles.fractionnement,
-          dateFinEnregistree, Number(primeTotale), statut || null, req.utilisateur.id, req.params.id,
+          dateFinEnregistree, Number(primeTotale), typeof retourFeuilleCaisse === 'boolean' ? retourFeuilleCaisse : null,
+          remarqueNormalisee || null, statut || null, req.utilisateur.id, req.params.id,
         ]
       );
       if (resultat.rowCount === 0) return null;

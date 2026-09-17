@@ -56,6 +56,11 @@ function libelleTypeDuree(contrat) {
   return typeDureeContrat(contrat) === 'ferme' ? 'DF' : 'RTR';
 }
 
+function typeDureeAvecInfobulle(contrat) {
+  const ferme = typeDureeContrat(contrat) === 'ferme';
+  return `<span class="abreviation-duree" title="${ferme ? 'Durée ferme' : 'Renouvelable par tacite reconduction'}">${ferme ? 'DF' : 'RTR'}</span>`;
+}
+
 function etiquetteFeuilleCaisse(disponible) {
   const classe = disponible ? 'oui' : 'non';
   return `<span class="etiquette-feuille-caisse ${classe}">${disponible ? 'Oui' : 'Non'}</span>`;
@@ -675,10 +680,8 @@ function filtresContrats() {
 }
 
 async function chargerContrats() {
-  const entetePrime = $('#entete-contrats-prime')
-    || document.querySelector('#vue-contrats thead th:nth-child(8)');
-  const enteteCommission = $('#entete-contrats-commission-nette')
-    || document.querySelector('#vue-contrats thead th:nth-child(9)');
+  const entetePrime = $('#entete-contrats-prime');
+  const enteteCommission = $('#entete-contrats-commission-nette');
   if (entetePrime) entetePrime.textContent = 'Prime';
   if (enteteCommission) enteteCommission.textContent = 'Commission nette';
 
@@ -690,10 +693,12 @@ async function chargerContrats() {
   $('#corps-tableau-contrats').innerHTML = lignes.map((ligne) => `<tr data-contrat-id="${echapper(ligne.id)}">
     <td>${echapper(ligne.numero_contrat)}</td><td>${echapper(ligne.client_nom)}</td>
     <td>${echapper(ligne.compagnie_nom)}</td><td>${echapper(ligne.produit_nom)}</td>
-    <td>${formaterDate(ligne.date_effet)}</td><td>${echapper(libelleTypeDuree(ligne))}</td>
+    <td>${formaterDate(ligne.date_effet)}</td><td>${typeDureeAvecInfobulle(ligne)}</td>
     <td>${etiquetteFeuilleCaisse(ligne.feuille_caisse)}</td>
+    <td>${etiquetteFeuilleCaisse(ligne.retour_feuille_caisse)}</td>
     <td>${formaterMontant(ligne.prime_totale)}</td>
     <td class="commission-nette">${ligne.feuille_caisse ? echapper(ligne.com_nette_saisie || formaterMontant(ligne.com_nette)) : ''}</td>
+    <td><span class="remarque-contrat" title="${echapper(ligne.remarque || '')}">${echapper(ligne.remarque || '—')}</span></td>
     <td>${echapper(libelleCode(ligne.statut))}</td></tr>`).join('');
   $('#etat-vide-contrats').hidden = lignes.length > 0;
   afficherPagination('contrats', resultat.pagination);
@@ -749,11 +754,13 @@ async function ouvrirFicheContrat(id) {
     <div>Payeur<div class="valeur">${echapper(contrat.payeur_nom || contrat.souscripteur_nom || contrat.client_nom)}</div></div></div>
     <div class="carte fiche-cumuls"><div>Prime totale<div class="valeur">${formaterMontant(contrat.prime_totale)}</div></div>
     <div>Date d'effet<div class="valeur">${formaterDate(contrat.date_effet)}</div></div>
-    <div>Durée du contrat<div class="valeur">${echapper(libelleTypeDuree(contrat))}</div></div>
+    <div>Durée du contrat<div class="valeur">${typeDureeAvecInfobulle(contrat)}</div></div>
     <div>Feuille de caisse<div class="valeur">${etiquetteFeuilleCaisse(contrat.feuille_caisse)}</div></div>
+    <div>Retour feuille de caisse<div class="valeur">${etiquetteFeuilleCaisse(contrat.retour_feuille_caisse)}</div></div>
     ${commissionNette}
     ${dateFinFerme}
-    <div>Statut<div class="valeur">${echapper(libelleCode(contrat.statut))}</div></div></div>
+    <div>Statut<div class="valeur">${echapper(libelleCode(contrat.statut))}</div></div>
+    <div>Remarque<div class="valeur remarque-contrat">${echapper(contrat.remarque || '—')}</div></div></div>
     <div class="carte"><div class="entete-section"><h3>Pièces jointes du contrat</h3>${ajoutPieceJointe}</div>
     ${piecesJointes ? `<ul class="liste-pieces-jointes">${piecesJointes}</ul>` : '<p class="etat-vide">Aucune pièce jointe.</p>'}</div>
     <div class="carte"><h3>Échéancier complet</h3>${echeances
@@ -896,10 +903,13 @@ async function ouvrirModaleContrat(contrat = null) {
     '#contrat-fractionnement': contrat?.fractionnement || 'annuel',
     '#contrat-date-echeance': contrat?.date_echeance?.slice(0, 10),
     '#contrat-prime': contrat?.prime_totale,
+    '#contrat-remarque': contrat?.remarque,
   };
   Object.entries(champs).forEach(([selecteur, valeur]) => { $(selecteur).value = valeur ?? ''; });
   $('#contrat-paiement-mode').value = 'autre';
   $('#contrat-paiement-reference').value = '';
+  $('#contrat-retour-feuille-oui').checked = Boolean(contrat?.retour_feuille_caisse);
+  $('#contrat-retour-feuille-non').checked = !contrat?.retour_feuille_caisse;
   $$('[data-paiement-initial]').forEach((champ) => { champ.hidden = Boolean(contrat); });
   if (!contrat) $('#contrat-souscripteur').value = $('#contrat-client').value;
   appliquerReglesDureeContrat();
@@ -1086,6 +1096,8 @@ function brancherFormulaires() {
         typeDuree: $('#contrat-type-duree').value,
         fractionnement: $('#contrat-fractionnement').value,
         primeTotale: Number($('#contrat-prime').value),
+        retourFeuilleCaisse: $('#contrat-retour-feuille-oui').checked,
+        remarque: $('#contrat-remarque').value.trim(),
         modePaiementInitial: $('#contrat-paiement-mode').value,
         referencePaiementInitial: $('#contrat-paiement-reference').value.trim(),
       };

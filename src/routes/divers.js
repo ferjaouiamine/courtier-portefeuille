@@ -454,7 +454,13 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
       `select c.numero_contrat, cl.nom as client_nom, cp.nom as compagnie_nom, pr.nom as produit_nom,
               c.statut, c.date_effet, c.date_fin, c.fractionnement,
               case when c.fractionnement = 'prime_unique' then 'ferme' else 'rtr' end as type_duree,
-              c.feuille_caisse, c.com_nette, c.prime_totale
+              case when c.feuille_caisse and exists (
+                select 1 from echeances ef
+                where ef.contrat_id = c.id and ef.supprime_le is null and ef.statut <> 'payee'
+                  and ef.date_echeance <= current_date
+                  and ef.date_echeance > coalesce(c.feuille_caisse_maj_le, c.date_effet)
+              ) then false else c.feuille_caisse end as feuille_caisse,
+              c.retour_feuille_caisse, c.remarque, c.com_nette, c.prime_totale
        from contrats c
        join clients cl on cl.id = c.client_id
        join compagnies cp on cp.id = c.compagnie_id
@@ -466,8 +472,9 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
 
     const entetes = [
       'Numéro de contrat', 'Client', 'Compagnie', 'Produit', 'Statut',
-      "Date d'effet", 'Date de fin (DF)', 'Durée', 'Feuille de caisse', 'Prime totale',
-      'Commission nette', 'Fréquence de paiement',
+      "Date d'effet", 'Date de fin (DF)', 'Durée', 'Feuille de caisse',
+      'Retour feuille de caisse', 'Prime totale', 'Commission nette', 'Remarque',
+      'Fréquence de paiement',
     ];
 
     const lignes = [entetes.join(';')];
@@ -482,8 +489,10 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
         ligne.type_duree === 'ferme' ? formaterDateCsv(ligne.date_fin) : '',
         echapperCsv(ligne.type_duree === 'ferme' ? 'DF' : 'RTR'),
         echapperCsv(ligne.feuille_caisse ? 'Oui' : 'Non'),
+        echapperCsv(ligne.retour_feuille_caisse ? 'Oui' : 'Non'),
         formaterMontantCsv(ligne.prime_totale),
         ligne.feuille_caisse ? formaterMontantCsv(ligne.com_nette) : '',
+        echapperCsv(ligne.remarque || ''),
         echapperCsv(ligne.fractionnement),
       ].join(';'));
     }

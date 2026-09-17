@@ -16,10 +16,10 @@ async function synchroniserFeuilleCaisseContrat(client, echeanceId, caisse, util
   await client.query(
     `update contrats c
      set feuille_caisse = $2, com_nette = $3, com_nette_saisie = $4,
-         modifie_par = $5, modifie_le = now()
+         feuille_caisse_maj_le = current_date, modifie_par = $5, modifie_le = now()
      from echeances e
      where e.id = $1 and e.contrat_id = c.id
-       and e.type_echeance = 'terme' and e.numero_terme = 0`,
+       and e.type_echeance = 'terme'`,
     [echeanceId, caisse.feuilleCaisse, caisse.commissionNette, caisse.commissionNetteSaisie, utilisateurId]
   );
 }

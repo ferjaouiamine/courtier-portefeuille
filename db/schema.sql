@@ -127,6 +127,9 @@ create table if not exists contrats (
   echeancier_personnalise boolean not null default false,
   prime_totale      numeric(12, 3) not null check (prime_totale >= 0),
   feuille_caisse    boolean not null default false,
+  feuille_caisse_maj_le date,
+  retour_feuille_caisse boolean not null default false,
+  remarque          text,
   com_brute         numeric(12, 3) not null default 0 check (com_brute >= 0),
   taux_retenue      numeric(5, 4) not null default 0.10 check (taux_retenue between 0 and 1),
   com_nette         numeric(12, 3),
@@ -152,6 +155,9 @@ alter table contrats add column if not exists societe_leasing_id uuid references
 alter table contrats add column if not exists societe_leasing text;
 alter table contrats add column if not exists payeur_id uuid references clients(id);
 alter table contrats add column if not exists feuille_caisse boolean not null default false;
+alter table contrats add column if not exists feuille_caisse_maj_le date;
+alter table contrats add column if not exists retour_feuille_caisse boolean not null default false;
+alter table contrats add column if not exists remarque text;
 alter table contrats add column if not exists com_nette_saisie text;
 alter table contrats add column if not exists organisation_id uuid default organisation_courante() references organisations(id);
 update contrats set organisation_id = '00000000-0000-4000-8000-000000000001' where organisation_id is null;
@@ -169,6 +175,10 @@ alter table contrats add constraint contrats_fractionnement_check check (
 alter table contrats drop constraint if exists contrats_duree_mois_check;
 alter table contrats add constraint contrats_duree_mois_check check (duree_mois between 1 and 1200);
 alter table contrats alter column duree_mois set default 12;
+alter table contrats drop constraint if exists ck_contrats_remarque_longueur;
+alter table contrats add constraint ck_contrats_remarque_longueur check (
+  remarque is null or char_length(remarque) <= 2000
+);
 
 -- Depuis Finasure Flow, la commission nette est saisie depuis la feuille de caisse.
 do $$
@@ -314,6 +324,14 @@ update paiements set com_nette = null, date_feuille_caisse = null where not feui
 update paiements set com_nette_saisie = com_nette::text
 where feuille_caisse and com_nette is not null and nullif(trim(com_nette_saisie), '') is null;
 update paiements set com_nette_saisie = null where not feuille_caisse;
+update contrats c set feuille_caisse_maj_le = historique.derniere_date
+from (
+  select e.contrat_id, max(coalesce(p.date_feuille_caisse, p.date_paiement)) as derniere_date
+  from echeances e
+  join paiements p on p.echeance_id = e.id and p.supprime_le is null and p.feuille_caisse
+  group by e.contrat_id
+) historique
+where c.id = historique.contrat_id and c.feuille_caisse_maj_le is null;
 alter table paiements drop constraint if exists ck_paiements_feuille_caisse_commission;
 alter table paiements add constraint ck_paiements_feuille_caisse_commission check (
   (feuille_caisse and com_nette is not null and com_nette >= 0 and date_feuille_caisse is not null)
@@ -707,8 +725,15 @@ select
   ,sl.id as societe_leasing_id, coalesce(nullif(c.societe_leasing, ''), sl.nom) as societe_leasing_nom
   ,pa.id as payeur_id, pa.nom as payeur_nom
   ,c.organisation_id
-  ,c.feuille_caisse
+  ,case when c.feuille_caisse and exists (
+      select 1 from echeances e_feuille
+      where e_feuille.contrat_id = c.id and e_feuille.supprime_le is null
+        and e_feuille.statut <> 'payee' and e_feuille.date_echeance <= current_date
+        and e_feuille.date_echeance > coalesce(c.feuille_caisse_maj_le, c.date_effet)
+    ) then false else c.feuille_caisse end as feuille_caisse
   ,c.com_nette_saisie
+  ,c.retour_feuille_caisse
+  ,c.remarque
 from contrats c
 join clients cl on cl.id = c.client_id and cl.supprime_le is null
 left join clients s on s.id = c.souscripteur_id
