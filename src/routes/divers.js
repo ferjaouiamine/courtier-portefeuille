@@ -473,8 +473,8 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
     const entetes = [
       'Numéro de contrat', 'Client', 'Compagnie', 'Produit', 'Statut',
       "Date d'effet", 'Date de fin (DF)', 'Durée', 'Feuille de caisse',
-      'Retour feuille de caisse', 'Prime totale', 'Commission nette', 'Remarque',
-      'Fréquence de paiement',
+      'Prime totale', 'Commission nette', 'Remarque', 'Fréquence de paiement',
+      'Retour feuille de caisse',
     ];
 
     const lignes = [entetes.join(';')];
@@ -489,11 +489,11 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
         ligne.type_duree === 'ferme' ? formaterDateCsv(ligne.date_fin) : '',
         echapperCsv(ligne.type_duree === 'ferme' ? 'DF' : 'RTR'),
         echapperCsv(ligne.feuille_caisse ? 'Oui' : 'Non'),
-        echapperCsv(ligne.retour_feuille_caisse ? 'Oui' : 'Non'),
         formaterMontantCsv(ligne.prime_totale),
         ligne.feuille_caisse ? formaterMontantCsv(ligne.com_nette) : '',
         echapperCsv(ligne.remarque || ''),
         echapperCsv(ligne.fractionnement),
+        echapperCsv(ligne.retour_feuille_caisse ? 'Oui' : 'Non'),
       ].join(';'));
     }
 

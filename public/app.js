@@ -48,6 +48,13 @@ function libelleCode(valeur) {
   return String(valeur ?? '—').replaceAll('_', ' ');
 }
 
+function formaterMontantSansDevise(valeur) {
+  return new Intl.NumberFormat('fr-TN', {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  }).format(Number(valeur) || 0).replace(/\u202f/g, ' ');
+}
+
 function typeDureeContrat(contrat) {
   return contrat?.type_duree || (contrat?.fractionnement === 'prime_unique' ? 'ferme' : 'rtr');
 }
@@ -64,6 +71,16 @@ function typeDureeAvecInfobulle(contrat) {
 function etiquetteFeuilleCaisse(disponible) {
   const classe = disponible ? 'oui' : 'non';
   return `<span class="etiquette-feuille-caisse ${classe}">${disponible ? 'Oui' : 'Non'}</span>`;
+}
+
+function controleRetourFeuilleCaisse(ligne) {
+  const id = echapper(ligne.id);
+  const nom = `retour-feuille-${id}`;
+  const desactive = peutEcrire() ? '' : ' disabled';
+  return `<div class="controle-retour-feuille" role="radiogroup" aria-label="Retour feuille de caisse">
+    <label class="oui"><input type="radio" name="${nom}" value="true" data-retour-feuille-id="${id}"${ligne.retour_feuille_caisse ? ' checked' : ''}${desactive} /><span>Oui</span></label>
+    <label class="non"><input type="radio" name="${nom}" value="false" data-retour-feuille-id="${id}"${ligne.retour_feuille_caisse ? '' : ' checked'}${desactive} /><span>Non</span></label>
+  </div>`;
 }
 
 function libelleStatutEcheance(statut) {
@@ -695,11 +712,11 @@ async function chargerContrats() {
     <td>${echapper(ligne.compagnie_nom)}</td><td>${echapper(ligne.produit_nom)}</td>
     <td>${formaterDate(ligne.date_effet)}</td><td>${typeDureeAvecInfobulle(ligne)}</td>
     <td>${etiquetteFeuilleCaisse(ligne.feuille_caisse)}</td>
-    <td>${etiquetteFeuilleCaisse(ligne.retour_feuille_caisse)}</td>
-    <td>${formaterMontant(ligne.prime_totale)}</td>
+    <td>${formaterMontantSansDevise(ligne.prime_totale)}</td>
     <td class="commission-nette">${ligne.feuille_caisse ? echapper(ligne.com_nette_saisie || formaterMontant(ligne.com_nette)) : ''}</td>
     <td><span class="remarque-contrat" title="${echapper(ligne.remarque || '')}">${echapper(ligne.remarque || '—')}</span></td>
-    <td>${echapper(libelleCode(ligne.statut))}</td></tr>`).join('');
+    <td>${echapper(libelleCode(ligne.statut))}</td>
+    <td>${controleRetourFeuilleCaisse(ligne)}</td></tr>`).join('');
   $('#etat-vide-contrats').hidden = lignes.length > 0;
   afficherPagination('contrats', resultat.pagination);
   $('#bouton-export-csv').href = `/api/export/portefeuille.csv?${parametres(filtresContrats())}`;
@@ -779,7 +796,6 @@ async function chargerClients() {
   $('#corps-tableau-clients').innerHTML = lignes.map((ligne) => `<tr data-client-id="${echapper(ligne.id)}">
     <td>${echapper(ligne.nom)}</td><td>${echapper(libelleCode(ligne.type_client))}</td>
     <td>${echapper(ligne.cin_ou_matricule || '—')}</td><td>${echapper(ligne.telephone || '—')}</td>
-    <td>${echapper(ligne.code_client_finasure || '—')}</td>
     <td><div class="actions-ligne"${peutEcrire() ? '' : ' hidden'}>
       <button type="button" data-action="modifier-client" data-id="${echapper(ligne.id)}">Modifier</button>
       <button type="button" class="danger" data-action="archiver-client" data-id="${echapper(ligne.id)}">Supprimer</button>
@@ -973,6 +989,7 @@ async function actionDeleguee(event) {
   const bouton = event.target.closest('[data-action]');
   const ligneContrat = event.target.closest('tr[data-contrat-id]');
   const ligneClient = event.target.closest('tr[data-client-id]');
+  if (event.target.closest('.controle-retour-feuille')) return;
   if (!bouton) {
     if (ligneContrat) await ouvrirFicheContrat(ligneContrat.dataset.contratId);
     else if (ligneClient) await ouvrirFicheClient(ligneClient.dataset.clientId);
@@ -1218,6 +1235,25 @@ function brancherEvenements() {
     try { await api('/api/auth/deconnexion', { method: 'POST' }); } finally { afficherConnexion(); }
   });
   document.addEventListener('click', actionDeleguee);
+  document.addEventListener('change', async (event) => {
+    const controle = event.target.closest('input[data-retour-feuille-id]');
+    if (!controle) return;
+    const groupe = controle.closest('.controle-retour-feuille');
+    const valeurPrecedente = controle.value !== 'true';
+    $$('input', groupe).forEach((input) => { input.disabled = true; });
+    try {
+      await api(`/api/contrats/${controle.dataset.retourFeuilleId}/retour-feuille-caisse`, {
+        method: 'PATCH', body: JSON.stringify({ retourFeuilleCaisse: controle.value === 'true' }),
+      });
+      afficherSucces('Retour feuille de caisse mis à jour.', $('#vue-contrats'));
+    } catch (erreur) {
+      const precedent = $(`input[value="${valeurPrecedente}"]`, groupe);
+      if (precedent) precedent.checked = true;
+      afficherErreur(erreur.message, $('#vue-contrats'));
+    } finally {
+      $$('input', groupe).forEach((input) => { input.disabled = !peutEcrire(); });
+    }
+  });
   $$('[data-vue]').forEach((bouton) => bouton.addEventListener('click', () => changerVue(bouton.dataset.vue)));
   $$('[data-fermer-modale]').forEach((bouton) => bouton.addEventListener('click', () => bouton.closest('dialog').close()));
   $$('dialog').forEach((dialogue) => dialogue.addEventListener('click', (event) => {

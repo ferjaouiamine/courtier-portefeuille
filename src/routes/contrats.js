@@ -432,6 +432,30 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
   }
 });
 
+// Mise à jour rapide depuis la dernière colonne du tableau des contrats.
+routeur.patch('/:id/retour-feuille-caisse', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const { retourFeuilleCaisse } = req.body || {};
+    if (typeof retourFeuilleCaisse !== 'boolean') {
+      return res.status(400).json({ erreur: 'Choisissez Oui ou Non pour le retour de la feuille de caisse.' });
+    }
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
+      client.query(
+        `update contrats set retour_feuille_caisse = $1, modifie_par = $2, modifie_le = now()
+         where id = $3 and supprime_le is null
+         returning id, retour_feuille_caisse`,
+        [retourFeuilleCaisse, req.utilisateur.id, req.params.id]
+      )
+    );
+    if (resultat.rowCount === 0) {
+      return res.status(404).json({ erreur: 'Contrat introuvable ou archivé.' });
+    }
+    return res.json(resultat.rows[0]);
+  } catch (erreur) {
+    return gererErreur(res, erreur, 'contrats.retour-feuille-caisse');
+  }
+});
+
 routeur.delete('/:id', exigerRole('admin', 'agent'), async (req, res) => {
   try {
     const resultat = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
