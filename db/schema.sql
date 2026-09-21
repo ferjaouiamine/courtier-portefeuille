@@ -302,6 +302,7 @@ create table if not exists paiements (
   mode_paiement text not null check (mode_paiement in
                   ('especes', 'cheque', 'virement', 'carte', 'autre')),
   reference     text,
+  remarque      text,
   date_paiement date not null default current_date,
   feuille_caisse boolean not null default false,
   com_nette     numeric(12, 3),
@@ -313,6 +314,7 @@ create table if not exists paiements (
   supprime_par  uuid references utilisateurs(id)
 );
 alter table paiements add column if not exists organisation_id uuid default organisation_courante() references organisations(id);
+alter table paiements add column if not exists remarque text;
 alter table paiements add column if not exists feuille_caisse boolean not null default false;
 alter table paiements add column if not exists com_nette numeric(12, 3);
 alter table paiements add column if not exists com_nette_saisie text;

@@ -86,7 +86,7 @@ routeur.post('/completer', exigerRole('admin', 'agent'), async (req, res) => {
 routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) => {
   try {
     const {
-      montant, modePaiement, reference, datePaiement,
+      montant, modePaiement, reference, remarque, datePaiement,
       feuilleCaisse, commissionNette, dateFeuilleCaisse,
     } = req.body || {};
 
@@ -95,6 +95,10 @@ routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) =>
     }
     if (!MODES_PAIEMENT.includes(modePaiement)) {
       return res.status(400).json({ erreur: 'Mode de paiement invalide.' });
+    }
+    const remarquePaiement = String(remarque || '').trim();
+    if (remarquePaiement.length > 2000) {
+      return res.status(400).json({ erreur: 'La remarque ne peut pas dépasser 2 000 caractères.' });
     }
     const caisse = normaliserFeuilleCaisse(feuilleCaisse, commissionNette);
 
@@ -133,15 +137,15 @@ routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) =>
 
       const paiement = await client.query(
         `insert into paiements (
-           echeance_id, montant, mode_paiement, reference, date_paiement,
+           echeance_id, montant, mode_paiement, reference, remarque, date_paiement,
            feuille_caisse, com_nette, com_nette_saisie, date_feuille_caisse, saisi_par
          ) values (
-           $1, $2, $3, $4, coalesce($5, current_date),
-           $6, $7, $8, case when $6 then coalesce($9, $5, current_date) else null end, $10
+           $1, $2, $3, $4, $5, coalesce($6, current_date),
+           $7, $8, $9, case when $7 then coalesce($10, $6, current_date) else null end, $11
          )
          returning *`,
         [
-          req.params.id, montant, modePaiement, reference || null, datePaiement || null,
+          req.params.id, montant, modePaiement, reference || null, remarquePaiement || null, datePaiement || null,
           caisse.feuilleCaisse, caisse.commissionNette, caisse.commissionNetteSaisie,
           dateFeuilleCaisse || null, req.utilisateur.id,
         ]
@@ -180,7 +184,7 @@ routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) =>
 routeur.put('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (req, res) => {
   try {
     const {
-      montant, modePaiement, reference, datePaiement,
+      montant, modePaiement, reference, remarque, datePaiement,
       feuilleCaisse, commissionNette, dateFeuilleCaisse,
     } = req.body || {};
     if (!Number.isFinite(Number(montant)) || Number(montant) <= 0) {
@@ -188,6 +192,10 @@ routeur.put('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (r
     }
     if (!MODES_PAIEMENT.includes(modePaiement)) {
       return res.status(400).json({ erreur: 'Mode de paiement invalide.' });
+    }
+    const remarquePaiement = String(remarque || '').trim();
+    if (remarquePaiement.length > 2000) {
+      return res.status(400).json({ erreur: 'La remarque ne peut pas dépasser 2 000 caractères.' });
     }
     const caisse = normaliserFeuilleCaisse(feuilleCaisse, commissionNette);
 
@@ -221,15 +229,15 @@ routeur.put('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (r
 
       const paiement = await client.query(
         `update paiements set
-           montant = $1, mode_paiement = $2, reference = $3,
-           date_paiement = coalesce($4, date_paiement),
-           feuille_caisse = $5, com_nette = $6, com_nette_saisie = $7,
-           date_feuille_caisse = case when $5 then coalesce($8, $4, date_feuille_caisse, current_date) else null end,
-           saisi_par = $9
-         where id = $10 and echeance_id = $11 and supprime_le is null
+           montant = $1, mode_paiement = $2, reference = $3, remarque = $4,
+           date_paiement = coalesce($5, date_paiement),
+           feuille_caisse = $6, com_nette = $7, com_nette_saisie = $8,
+           date_feuille_caisse = case when $6 then coalesce($9, $5, date_feuille_caisse, current_date) else null end,
+           saisi_par = $10
+         where id = $11 and echeance_id = $12 and supprime_le is null
          returning *`,
         [
-          montant, modePaiement, reference || null, datePaiement || null,
+          montant, modePaiement, reference || null, remarquePaiement || null, datePaiement || null,
           caisse.feuilleCaisse, caisse.commissionNette, caisse.commissionNetteSaisie, dateFeuilleCaisse || null,
           req.utilisateur.id, req.params.paiementId, req.params.id,
         ]
