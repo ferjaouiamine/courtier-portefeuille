@@ -695,11 +695,6 @@ function filtresContrats() {
 }
 
 async function chargerContrats() {
-  const entetePrime = $('#entete-contrats-prime');
-  const enteteCommission = $('#entete-contrats-commission-nette');
-  if (entetePrime) entetePrime.textContent = 'Prime';
-  if (enteteCommission) enteteCommission.textContent = 'Commission nette';
-
   await chargerReferentiels();
   const resultat = await api(`/api/contrats?${parametres({
     ...filtresContrats(), page: etat.pages.contrats, limite: 50,
@@ -710,6 +705,7 @@ async function chargerContrats() {
     <td>${echapper(ligne.compagnie_nom)}</td><td>${echapper(ligne.produit_nom)}</td>
     <td>${formaterDate(ligne.date_effet)}</td><td>${typeDureeAvecInfobulle(ligne)}</td>
     <td>${etiquetteFeuilleCaisse(ligne.feuille_caisse)}</td>
+    <td>DT</td>
     <td>${formaterMontantSansDevise(ligne.prime_totale)}</td>
     <td class="commission-nette">${ligne.feuille_caisse ? echapper(ligne.com_nette_saisie || formaterMontant(ligne.com_nette)) : ''}</td>
     <td><span class="remarque-contrat" title="${echapper(ligne.remarque || '')}">${echapper(ligne.remarque || '—')}</span></td>
