@@ -41,10 +41,10 @@ test('le résumé d audit ne retourne jamais le hachage du mot de passe', () => 
   assert.equal(JSON.stringify(resume).includes('information-sensible'), false);
 });
 
-test('le résumé d audit inclut la remarque modifiée d un paiement', () => {
+test('le résumé d audit inclut la remarque principale modifiée du contrat', () => {
   const resume = resumerLigneAudit({
     action: 'modification',
-    table_cible: 'paiements',
+    table_cible: 'contrats',
     utilisateur_nom: 'Administrateur Finasure',
     etat_avant: { montant: '100.000', remarque: 'À vérifier' },
     etat_apres: { montant: '100.000', remarque: 'Vérifié' },

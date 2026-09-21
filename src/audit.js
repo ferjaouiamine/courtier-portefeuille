@@ -12,7 +12,7 @@ const CHAMPS_VISIBLES = {
   ],
   echeances: ['type_echeance', 'numero_terme', 'date_echeance', 'montant_prime', 'statut'],
   paiements: [
-    'montant', 'mode_paiement', 'reference', 'remarque', 'date_paiement',
+    'montant', 'mode_paiement', 'reference', 'date_paiement',
     'feuille_caisse', 'com_nette', 'com_nette_saisie', 'date_feuille_caisse',
   ],
   relances: ['type_relance', 'note', 'effectuee_le'],
