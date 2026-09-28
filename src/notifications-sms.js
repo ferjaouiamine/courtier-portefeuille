@@ -4,6 +4,25 @@ const { pool } = require('./db');
 
 const DECLENCHEURS = new Map([[30, 'J-30'], [15, 'J-15'], [5, 'J-5']]);
 
+function formaterDateSms(valeur) {
+  const iso = String(valeur || '').slice(0, 10);
+  const correspondance = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return correspondance ? `${correspondance[3]}/${correspondance[2]}/${correspondance[1]}` : iso;
+}
+
+function formaterMontantSms(valeur) {
+  const montant = Number(valeur);
+  if (!Number.isFinite(montant)) return String(valeur || '');
+  return new Intl.NumberFormat('fr-FR', {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  }).format(montant).replace(/[\u00a0\u202f]/g, ' ');
+}
+
+function construireRappelEcheance({ numeroContrat, dateEcheance, montantPrime }) {
+  return `Cher client,\n\nVotre contrat d'assurance numero ${numeroContrat} arrive a echeance le ${formaterDateSms(dateEcheance)}.\n\nMerci de proceder au paiement de votre prime d'assurance de ${formaterMontantSms(montantPrime)} DT.\n\nFinasure\n26 17 94 10 / 29 27 98 78`;
+}
+
 function normaliserTelephone(telephone) {
   const chiffres = String(telephone || '').replace(/[^\d+]/g, '');
   if (/^\d{8}$/.test(chiffres)) return `+216${chiffres}`;
@@ -15,41 +34,59 @@ function normaliserTelephone(telephone) {
 
 function configurationWinSms() {
   const apiKey = process.env.WINSMS_API_KEY;
-  return apiKey ? { apiKey } : null;
+  const senderId = process.env.WINSMS_SENDER_ID || 'Finasure';
+  return apiKey ? { apiKey, senderId } : null;
+}
+
+function analyserReponseWinSms(texte) {
+  const contenu = String(texte || '').trim();
+  let resultat;
+  try {
+    resultat = JSON.parse(contenu);
+  } catch {
+    resultat = null;
+  }
+
+  const erreur = resultat?.error || resultat?.erreur || resultat?.error_message
+    || resultat?.errorMessage;
+  const statut = String(resultat?.status || resultat?.statut || '').toLowerCase();
+  if (erreur || resultat?.success === false || ['error', 'failed', 'echec'].includes(statut)
+      || /\b(error|erreur|invalid|invalide|failed|echec|refus|denied|unauthorized)\b/i.test(contenu)) {
+    throw new Error(String(erreur || resultat?.message || contenu || 'Message refuse par WinSMS.'));
+  }
+
+  const reference = resultat?.ref || resultat?.reference || resultat?.id
+    || resultat?.data?.ref || resultat?.data?.reference || resultat?.data?.id;
+  return String(reference || contenu || `winsms-${Date.now()}`).slice(0, 255);
 }
 
 async function envoyerAvecWinSms({ telephone, message }) {
   const config = configurationWinSms();
   if (!config) return { configure: false };
-  const reponse = await fetch(
-    'https://api.winsms.co.za/api/rest/v1/sms/outgoing/send',
-    {
-      method: 'POST',
-      headers: {
-        AUTHORIZATION: config.apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        message,
-        recipients: [{ mobileNumber: telephone.replace(/^\+/, '') }],
-        maxSegments: 1,
-      }),
-    }
-  );
-  const resultat = await reponse.json().catch(() => ({}));
-  if (!reponse.ok) throw new Error(resultat.errorMessage || `WinSMS HTTP ${reponse.status}`);
-  const destinataire = resultat.recipients?.[0];
-  if (!destinataire?.accepted) {
-    throw new Error(destinataire?.acceptError || 'Message refusé par WinSMS.');
-  }
-  return { configure: true, id: String(destinataire.apiMessageId) };
+  const url = new URL('https://www.winsmspro.com/sms/sms/api');
+  url.search = new URLSearchParams({
+    action: 'send-sms',
+    api_key: config.apiKey,
+    to: telephone.replace(/^\+/, ''),
+    sms: message,
+    from: config.senderId,
+  }).toString();
+
+  const reponse = await fetch(url, {
+    method: 'GET',
+    headers: { Accept: 'application/json, text/plain;q=0.9' },
+  });
+  const texte = await reponse.text();
+  if (!reponse.ok) throw new Error(texte || `WinSMS HTTP ${reponse.status}`);
+  return { configure: true, id: analyserReponseWinSms(texte) };
 }
 
 async function preparerNotifications(client) {
   const aujourdHui = await client.query("select (now() at time zone 'Africa/Tunis')::date as date");
   const date = aujourdHui.rows[0].date;
   const echeances = await client.query(
-    `select e.id as echeance_id, e.date_echeance, c.id as contrat_id, c.numero_contrat,
+    `select e.id as echeance_id, e.date_echeance, e.montant_prime,
+            c.id as contrat_id, c.numero_contrat,
             cl.id as client_id, cl.nom, cl.telephone
      from echeances e
      join contrats c on c.id = e.contrat_id and c.supprime_le is null and c.statut = 'en_cours'
@@ -65,7 +102,11 @@ async function preparerNotifications(client) {
     if (!telephone) continue;
     const jours = Math.round((new Date(`${ligne.date_echeance}T00:00:00Z`) - new Date(`${date}T00:00:00Z`)) / 86400000);
     const declencheur = DECLENCHEURS.get(jours);
-    const message = `Finasure : rappel, l'echeance du contrat ${ligne.numero_contrat} est prevue le ${ligne.date_echeance}.`;
+    const message = construireRappelEcheance({
+      numeroContrat: ligne.numero_contrat,
+      dateEcheance: ligne.date_echeance,
+      montantPrime: ligne.montant_prime,
+    });
     const resultat = await client.query(
       `insert into notifications_sms
          (client_id, contrat_id, echeance_id, type_notification, declencheur, date_cible, telephone, message)
@@ -166,6 +207,7 @@ async function executerNotificationsSms() {
 
 module.exports = {
   normaliserTelephone,
+  construireRappelEcheance,
   envoyerAvecWinSms,
   preparerNotifications,
   executerNotificationsSms,
