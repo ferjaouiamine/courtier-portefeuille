@@ -711,6 +711,7 @@ async function chargerContrats() {
     <td>${echapper(ligne.numero_contrat)}</td><td>${echapper(ligne.client_nom)}</td>
     <td>${echapper(ligne.compagnie_nom)}</td><td>${echapper(ligne.produit_nom)}</td>
     <td>${formaterDate(ligne.date_effet)}</td><td>${typeDureeAvecInfobulle(ligne)}</td>
+    <td>${formaterDate(ligne.date_fin)}</td>
     <td>${etiquetteFeuilleCaisse(ligne.feuille_caisse)}</td>
     <td class="prime-contrat">${formaterMontantAligne(ligne.prime_totale)}</td>
     <td>DT</td>
