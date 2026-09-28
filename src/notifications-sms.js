@@ -13,35 +13,36 @@ function normaliserTelephone(telephone) {
   return null;
 }
 
-function configurationTwilio() {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
-  const from = process.env.TWILIO_FROM;
-  if (!accountSid || !authToken || (!messagingServiceSid && !from)) return null;
-  return { accountSid, authToken, messagingServiceSid, from };
+function configurationWinSms() {
+  const apiKey = process.env.WINSMS_API_KEY;
+  return apiKey ? { apiKey } : null;
 }
 
-async function envoyerAvecTwilio({ telephone, message }) {
-  const config = configurationTwilio();
+async function envoyerAvecWinSms({ telephone, message }) {
+  const config = configurationWinSms();
   if (!config) return { configure: false };
-  const corps = new URLSearchParams({ To: telephone, Body: message });
-  if (config.messagingServiceSid) corps.set('MessagingServiceSid', config.messagingServiceSid);
-  else corps.set('From', config.from);
   const reponse = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Messages.json`,
+    'https://api.winsms.co.za/api/rest/v1/sms/outgoing/send',
     {
       method: 'POST',
       headers: {
-        Authorization: `Basic ${Buffer.from(`${config.accountSid}:${config.authToken}`).toString('base64')}`,
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        AUTHORIZATION: config.apiKey,
+        'Content-Type': 'application/json',
       },
-      body: corps,
+      body: JSON.stringify({
+        message,
+        recipients: [{ mobileNumber: telephone.replace(/^\+/, '') }],
+        maxSegments: 1,
+      }),
     }
   );
   const resultat = await reponse.json().catch(() => ({}));
-  if (!reponse.ok) throw new Error(resultat.message || `Twilio HTTP ${reponse.status}`);
-  return { configure: true, id: resultat.sid };
+  if (!reponse.ok) throw new Error(resultat.errorMessage || `WinSMS HTTP ${reponse.status}`);
+  const destinataire = resultat.recipients?.[0];
+  if (!destinataire?.accepted) {
+    throw new Error(destinataire?.acceptError || 'Message refusé par WinSMS.');
+  }
+  return { configure: true, id: String(destinataire.apiMessageId) };
 }
 
 async function preparerNotifications(client) {
@@ -105,7 +106,7 @@ async function traiterOrganisation(organisationId) {
     await client.query('begin');
     await client.query("select set_config('app.organisation_id', $1, true)", [organisationId]);
     const creees = await preparerNotifications(client);
-    const config = configurationTwilio();
+    const config = configurationWinSms();
     if (!config) {
       await client.query('commit');
       return { creees, envoyees: 0, echecs: 0, configurationSms: false };
@@ -124,7 +125,7 @@ async function traiterOrganisation(organisationId) {
         [notification.id]
       );
       try {
-        const envoi = await envoyerAvecTwilio(notification);
+        const envoi = await envoyerAvecWinSms(notification);
         await client.query(
           `update notifications_sms set statut = 'envoyee', fournisseur_id = $2,
                envoye_le = now() where id = $1`,
@@ -163,4 +164,9 @@ async function executerNotificationsSms() {
   return bilan;
 }
 
-module.exports = { normaliserTelephone, preparerNotifications, executerNotificationsSms };
+module.exports = {
+  normaliserTelephone,
+  envoyerAvecWinSms,
+  preparerNotifications,
+  executerNotificationsSms,
+};
