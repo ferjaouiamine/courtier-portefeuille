@@ -220,6 +220,12 @@ routeur.delete('/corbeille/:table/:id', exigerRole('admin'), async (req, res) =>
         );
 
         await client.query(
+          `delete from notifications_sms
+           where contrat_id = $1
+              or echeance_id in (select id from echeances where contrat_id = $1)`,
+          [id]
+        );
+        await client.query(
           'delete from relances where echeance_id in (select id from echeances where contrat_id = $1)',
           [id]
         );
@@ -270,6 +276,9 @@ routeur.delete('/corbeille/:table/:id', exigerRole('admin'), async (req, res) =>
         etatAvant: element.rows[0],
         etatApres: { suppression_definitive: true },
       });
+      if (table === 'clients') {
+        await client.query('delete from notifications_sms where client_id = $1', [id]);
+      }
       await client.query(`delete from ${table} where id = $1`, [id]);
       return {};
     });

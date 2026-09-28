@@ -453,13 +453,21 @@ routeur.patch('/:id/retour-feuille-caisse', exigerRole('admin', 'agent'), async 
 
 routeur.delete('/:id', exigerRole('admin', 'agent'), async (req, res) => {
   try {
-    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
-      client.query(
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
+      const archive = await client.query(
         `update contrats set supprime_le = now(), supprime_par = $1
          where id = $2 and supprime_le is null returning id`,
         [req.utilisateur.id, req.params.id]
-      )
-    );
+      );
+      if (archive.rowCount > 0) {
+        await client.query(
+          `delete from notifications_sms
+           where contrat_id = $1 and statut <> 'envoyee'`,
+          [req.params.id]
+        );
+      }
+      return archive;
+    });
     if (resultat.rowCount === 0) {
       return res.status(404).json({ erreur: 'Contrat introuvable ou déjà archivé.' });
     }
