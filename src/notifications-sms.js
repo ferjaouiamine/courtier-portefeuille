@@ -20,7 +20,11 @@ function formaterMontantSms(valeur) {
 }
 
 function construireRappelEcheance({ numeroContrat, dateEcheance, montantPrime }) {
-  return `Cher client,\n\nVotre contrat d'assurance numero ${numeroContrat} arrive a echeance le ${formaterDateSms(dateEcheance)}.\n\nMerci de proceder au paiement de votre prime d'assurance de ${formaterMontantSms(montantPrime)} DT.\n\nFinasure\n26 17 94 10 / 29 27 98 78`;
+  return `Cher client(e),\nVotre contrat d'assurance numéro ${numeroContrat} arrive à échéance le ${formaterDateSms(dateEcheance)}.\nMerci de procéder au paiement de votre prime d'assurance de ${formaterMontantSms(montantPrime)} DT.\nFinasure\n26 17 94 10 / 29 27 98 78\nEmail : contact@finasure-solutions.com`;
+}
+
+function construireMessageAnniversaire(nomClient) {
+  return `Cher client(e),\n\nJoyeux anniversaire ${nomClient} !\nToute l'équipe Finasure vous souhaite une excellente journée et vous remercie pour votre confiance.`;
 }
 
 function normaliserTelephone(telephone) {
@@ -128,7 +132,7 @@ async function preparerNotifications(client) {
   for (const ligne of anniversaires.rows) {
     const telephone = normaliserTelephone(ligne.telephone);
     if (!telephone) continue;
-    const message = `Finasure vous souhaite un joyeux anniversaire, ${ligne.nom}.`;
+    const message = construireMessageAnniversaire(ligne.nom);
     const resultat = await client.query(
       `insert into notifications_sms
          (client_id, type_notification, declencheur, date_cible, telephone, message)
@@ -208,6 +212,7 @@ async function executerNotificationsSms() {
 module.exports = {
   normaliserTelephone,
   construireRappelEcheance,
+  construireMessageAnniversaire,
   envoyerAvecWinSms,
   preparerNotifications,
   executerNotificationsSms,
