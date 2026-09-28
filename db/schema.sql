@@ -396,8 +396,10 @@ create table if not exists notifications_sms (
   envoye_le timestamptz,
   cree_le timestamptz not null default now()
 );
-create unique index if not exists ux_notifications_sms_echeance
-  on notifications_sms (echeance_id, declencheur) where type_notification = 'echeance';
+drop index if exists ux_notifications_sms_echeance;
+create unique index ux_notifications_sms_echeance
+  on notifications_sms (echeance_id, declencheur, date_cible)
+  where type_notification = 'echeance';
 create unique index if not exists ux_notifications_sms_anniversaire
   on notifications_sms (client_id, date_cible) where type_notification = 'anniversaire';
 create index if not exists ix_notifications_sms_statut on notifications_sms (organisation_id, statut, cree_le);

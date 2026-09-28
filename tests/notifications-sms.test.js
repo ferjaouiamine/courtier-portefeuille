@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   normaliserTelephone,
+  determinerDeclencheur,
   construireRappelEcheance,
   construireMessageAnniversaire,
   envoyerAvecWinSms,
@@ -18,6 +19,17 @@ test('normalise les numéros tunisiens au format E.164', () => {
 test('refuse un numéro SMS invalide', () => {
   assert.equal(normaliserTelephone('123'), null);
   assert.equal(normaliserTelephone(''), null);
+});
+
+test("détermine le rappel à partir de la date d'échéance modifiée", () => {
+  assert.equal(determinerDeclencheur(30), 'J-30');
+  assert.equal(determinerDeclencheur(16), 'J-30');
+  assert.equal(determinerDeclencheur(15), 'J-15');
+  assert.equal(determinerDeclencheur(6), 'J-15');
+  assert.equal(determinerDeclencheur(5), 'J-5');
+  assert.equal(determinerDeclencheur(0), 'J-5');
+  assert.equal(determinerDeclencheur(-1), null);
+  assert.equal(determinerDeclencheur(31), null);
 });
 
 test('construit le rappel avec le contrat, la date et la prime', () => {

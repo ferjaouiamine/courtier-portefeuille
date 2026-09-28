@@ -312,6 +312,11 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
         [dateEcheance, montantEcheance, statut, req.params.id]
       );
       await client.query(
+        `delete from notifications_sms
+         where echeance_id = $1 and statut <> 'envoyee'`,
+        [req.params.id]
+      );
+      await client.query(
         `update contrats set echeancier_personnalise = true, modifie_par = $1, modifie_le = now()
          where id = $2`,
         [req.utilisateur.id, existante.rows[0].contrat_id]

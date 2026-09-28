@@ -2,7 +2,13 @@
 
 const { pool } = require('./db');
 
-const DECLENCHEURS = new Map([[30, 'J-30'], [15, 'J-15'], [5, 'J-5']]);
+function determinerDeclencheur(joursRestants) {
+  const jours = Number(joursRestants);
+  if (!Number.isInteger(jours) || jours < 0 || jours > 30) return null;
+  if (jours <= 5) return 'J-5';
+  if (jours <= 15) return 'J-15';
+  return 'J-30';
+}
 
 function formaterDateSms(valeur) {
   const iso = String(valeur || '').slice(0, 10);
@@ -97,7 +103,7 @@ async function preparerNotifications(client) {
      join clients cl on cl.id = coalesce(c.payeur_id, c.souscripteur_id, c.client_id)
        and cl.supprime_le is null and cl.sms_autorise
      where e.supprime_le is null and e.statut <> 'payee'
-       and (e.date_echeance - $1::date) in (30, 15, 5)`,
+       and (e.date_echeance - $1::date) between 0 and 30`,
     [date]
   );
   let creees = 0;
@@ -105,7 +111,8 @@ async function preparerNotifications(client) {
     const telephone = normaliserTelephone(ligne.telephone);
     if (!telephone) continue;
     const jours = Math.round((new Date(`${ligne.date_echeance}T00:00:00Z`) - new Date(`${date}T00:00:00Z`)) / 86400000);
-    const declencheur = DECLENCHEURS.get(jours);
+    const declencheur = determinerDeclencheur(jours);
+    if (!declencheur) continue;
     const message = construireRappelEcheance({
       numeroContrat: ligne.numero_contrat,
       dateEcheance: ligne.date_echeance,
@@ -211,6 +218,7 @@ async function executerNotificationsSms() {
 
 module.exports = {
   normaliserTelephone,
+  determinerDeclencheur,
   construireRappelEcheance,
   construireMessageAnniversaire,
   envoyerAvecWinSms,
