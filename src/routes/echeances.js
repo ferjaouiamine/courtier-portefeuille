@@ -77,7 +77,7 @@ routeur.get('/', async (req, res) => {
   }
 });
 
-// Maintient dix termes futurs sur tous les contrats RTR de l'organisation.
+// Maintient tous les termes jusqu'à la date de fin des contrats RTR.
 routeur.post('/completer', exigerRole('admin', 'agent'), async (req, res) => {
   try {
     const modifications = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>

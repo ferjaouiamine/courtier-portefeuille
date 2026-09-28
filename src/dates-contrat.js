@@ -43,4 +43,17 @@ function validerDateFinFerme(dateEffet, dateFin) {
   return dateFin;
 }
 
-module.exports = { calculerDateFin, validerDateFinFerme };
+function calculerDureeMoisEntreDates(dateEffet, dateFin) {
+  const debut = parserDateIso(dateEffet);
+  const fin = parserDateIso(dateFin, 'La date de fin');
+  if (dateFin <= dateEffet) {
+    throw erreurSaisie("La date de fin doit être postérieure à la date d'effet.");
+  }
+  const duree = (fin.annee - debut.annee) * 12 + fin.mois - debut.mois;
+  if (duree <= 0 || duree > 1200) {
+    throw erreurSaisie('La durée du contrat doit être comprise entre 1 et 1200 mois.');
+  }
+  return duree;
+}
+
+module.exports = { calculerDateFin, calculerDureeMoisEntreDates, validerDateFinFerme };

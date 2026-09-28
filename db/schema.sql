@@ -209,7 +209,7 @@ alter table contrats add constraint ck_contrats_feuille_caisse_commission check 
 -- La date de fin est saisie pour une durée ferme et dérivée techniquement pour un contrat RTR.
 create or replace function f_calcul_date_fin_contrat() returns trigger as $$
 begin
-  if new.fractionnement <> 'prime_unique' then
+  if new.fractionnement <> 'prime_unique' and new.date_fin is null then
     new.date_fin := (new.date_effet + make_interval(months => new.duree_mois))::date;
   end if;
   return new;
@@ -611,8 +611,6 @@ $$;
 create or replace function generer_echeances(p_contrat_id uuid) returns void as $$
 declare
   v contrats%rowtype;
-  v_dernier_numero integer;
-  v_numeros_payes integer[];
   v_numeros_cibles integer[];
   v_mois integer;
 begin
@@ -640,20 +638,9 @@ begin
     when 'annuel' then 12
   end;
 
-  select coalesce(max(numero_terme), 0),
-         coalesce(array_agg(numero_terme) filter (where statut = 'payee'), '{}'::integer[])
-  into v_dernier_numero, v_numeros_payes
-  from echeances
-  where contrat_id = p_contrat_id and type_echeance = 'terme';
-
-  select array_agg(numero order by numero) into v_numeros_cibles
-  from (
-    select numero
-    from generate_series(1, greatest(v_dernier_numero + 10, 10)) as termes(numero)
-    where not (numero = any(v_numeros_payes))
-    order by numero
-    limit 10
-  ) cibles;
+  select coalesce(array_agg(numero order by numero), '{}'::integer[]) into v_numeros_cibles
+  from generate_series(1, greatest(0, ceil(v.duree_mois::numeric / v_mois)::integer)) as termes(numero)
+  where (v.date_effet + make_interval(months => v_mois * numero))::date <= v.date_fin;
 
   update echeances set supprime_le = coalesce(supprime_le, now())
   where contrat_id = p_contrat_id and type_echeance = 'terme'

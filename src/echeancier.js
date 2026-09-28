@@ -2,13 +2,24 @@
 
 const { calculerDateFin } = require('./dates-contrat');
 const { moisDuFractionnement } = require('./regles-contrat');
-const NOMBRE_ECHEANCES_FUTURES = 10;
 
 function calculerDateTerme(dateEffet, fractionnement, numeroTerme) {
   const mois = moisDuFractionnement(fractionnement);
   const numero = Number(numeroTerme);
   if (!mois || !Number.isInteger(numero) || numero < 1) return null;
   return calculerDateFin(dateEffet, mois * numero);
+}
+
+function calculerNumerosTermes(dateEffet, fractionnement, dateFin) {
+  const mois = moisDuFractionnement(fractionnement);
+  if (!mois || !dateFin) return [];
+  const numeros = [];
+  for (let numero = 1; numero <= 10000; numero += 1) {
+    const date = calculerDateTerme(dateEffet, fractionnement, numero);
+    if (!date || date > dateFin) break;
+    numeros.push(numero);
+  }
+  return numeros;
 }
 
 async function enregistrerPaiementInitial(client, contrat, utilisateurId, paiement = {}) {
@@ -57,19 +68,18 @@ async function synchroniserProchaineEcheance(client, contrat) {
   }
 
   const etatTermes = await client.query(
-    `select coalesce(max(numero_terme), 0)::int as dernier_numero,
-            coalesce(array_agg(numero_terme) filter (where statut = 'payee'), '{}'::integer[]) as numeros_payes
+    `select coalesce(array_agg(numero_terme) filter (where statut = 'payee'), '{}'::integer[]) as numeros_payes
      from echeances
      where contrat_id = $1 and type_echeance = 'terme'`,
     [contrat.id]
   );
   const numerosPayes = new Set(etatTermes.rows[0].numeros_payes.map(Number));
-  const dernierNumeroConnu = etatTermes.rows[0].dernier_numero;
-  const numeros = Array.from(
-    { length: Math.max(NOMBRE_ECHEANCES_FUTURES, dernierNumeroConnu + NOMBRE_ECHEANCES_FUTURES) },
-    (_, index) => index + 1
-  ).filter((numero) => !numerosPayes.has(numero)).slice(0, NOMBRE_ECHEANCES_FUTURES);
-  const premierNumero = numeros[0];
+  const numeros = calculerNumerosTermes(
+    contrat.date_effet,
+    contrat.fractionnement,
+    contrat.date_fin
+  );
+  const premierNumero = numeros.find((numero) => !numerosPayes.has(numero));
   const dates = numeros.map((numero) => calculerDateTerme(
     contrat.date_effet,
     contrat.fractionnement,
@@ -104,6 +114,7 @@ async function synchroniserProchaineEcheance(client, contrat) {
     [contrat.id, numeros, dates, contrat.prime_totale, contrat.com_brute || 0]
   );
 
+  if (!premierNumero) return null;
   const existante = await client.query(
     `select id, contrat_id, numero_terme, date_echeance, montant_prime, statut
      from echeances
@@ -116,7 +127,8 @@ async function synchroniserProchaineEcheance(client, contrat) {
 async function completerTousLesEcheanciers(client) {
   const resultat = await client.query(`
     with contrats_cibles as (
-      select c.id, c.organisation_id, c.date_effet, c.prime_totale, c.com_brute,
+      select c.id, c.organisation_id, c.date_effet, c.date_fin, c.duree_mois,
+             c.prime_totale, c.com_brute,
              case c.fractionnement
                when 'trimestriel' then 3
                when 'semestriel' then 6
@@ -125,33 +137,22 @@ async function completerTousLesEcheanciers(client) {
              end as mois
       from contrats c
       where c.supprime_le is null and c.statut = 'en_cours' and not c.echeancier_personnalise
-    ), etats as (
-      select c.id, c.organisation_id, c.date_effet, c.prime_totale, c.com_brute, c.mois,
-             coalesce(max(e.numero_terme), 0)::int as dernier_numero,
-             coalesce(array_agg(e.numero_terme) filter (where e.statut = 'payee'), '{}'::integer[]) as numeros_payes
-      from contrats_cibles c
-      left join echeances e on e.contrat_id = c.id and e.type_echeance = 'terme'
-      group by c.id, c.organisation_id, c.date_effet, c.prime_totale, c.com_brute, c.mois
-    ), candidats as (
-      select e.*, serie.numero as numero_terme,
-             row_number() over (partition by e.id order by serie.numero) as rang
-      from etats e
-      cross join lateral generate_series(
-        1, greatest(e.dernier_numero + ${NOMBRE_ECHEANCES_FUTURES}, ${NOMBRE_ECHEANCES_FUTURES})
-      ) as serie(numero)
-      where e.mois is not null and not (serie.numero = any(e.numeros_payes))
     ), cibles as (
-      select id as contrat_id, organisation_id, numero_terme,
-             (date_effet + make_interval(months => mois * numero_terme))::date as date_echeance,
-             prime_totale, com_brute
-      from candidats
-      where rang <= ${NOMBRE_ECHEANCES_FUTURES}
+      select c.id as contrat_id, c.organisation_id, serie.numero as numero_terme,
+             (c.date_effet + make_interval(months => c.mois * serie.numero))::date as date_echeance,
+             c.prime_totale, c.com_brute
+      from contrats_cibles c
+      cross join lateral generate_series(
+        1, greatest(0, ceil(c.duree_mois::numeric / c.mois)::integer)
+      ) as serie(numero)
+      where c.mois is not null
+        and (c.date_effet + make_interval(months => c.mois * serie.numero))::date <= c.date_fin
     ), archives as (
       update echeances e set supprime_le = coalesce(e.supprime_le, now())
       where e.type_echeance = 'terme' and e.supprime_le is null
         and e.statut not in ('payee', 'partielle')
         and exists (
-          select 1 from etats etat
+          select 1 from contrats_cibles etat
           where etat.id = e.contrat_id and (
             etat.mois is null or not exists (
               select 1 from cibles cible
@@ -187,8 +188,8 @@ async function completerTousLesEcheanciers(client) {
 }
 
 module.exports = {
-  NOMBRE_ECHEANCES_FUTURES,
   calculerDateTerme,
+  calculerNumerosTermes,
   completerTousLesEcheanciers,
   enregistrerPaiementInitial,
   synchroniserProchaineEcheance,

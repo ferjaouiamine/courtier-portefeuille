@@ -6,7 +6,7 @@ const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
 const { journaliser, resumerLigneAudit } = require('../audit');
 const stockage = require('../stockage');
-const { calculerDateFin, validerDateFinFerme } = require('../dates-contrat');
+const { calculerDateFin, calculerDureeMoisEntreDates, validerDateFinFerme } = require('../dates-contrat');
 const {
   normaliserDureeEtFractionnement,
   typeDureeDepuisFractionnement,
@@ -332,11 +332,11 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
     if (remarqueNormalisee.length > 2000) {
       return res.status(400).json({ erreur: 'La remarque ne doit pas dépasser 2 000 caractères.' });
     }
-    const dureeTechnique = dureeMois ?? 12;
     const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
-    const dateFinEnregistree = regles.typeDuree === 'ferme'
+    const dateFinEnregistree = dateFin
       ? validerDateFinFerme(dateEffet, dateFin)
-      : calculerDateFin(dateEffet, dureeTechnique);
+      : calculerDateFin(dateEffet, dureeMois ?? 12);
+    const dureeTechnique = calculerDureeMoisEntreDates(dateEffet, dateFinEnregistree);
 
     const contrat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const resultat = await client.query(
@@ -389,11 +389,11 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
     if (remarqueNormalisee.length > 2000) {
       return res.status(400).json({ erreur: 'La remarque ne doit pas dépasser 2 000 caractères.' });
     }
-    const dureeTechnique = dureeMois ?? 12;
     const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
-    const dateFinEnregistree = regles.typeDuree === 'ferme'
+    const dateFinEnregistree = dateFin
       ? validerDateFinFerme(dateEffet, dateFin)
-      : calculerDateFin(dateEffet, dureeTechnique);
+      : calculerDateFin(dateEffet, dureeMois ?? 12);
+    const dureeTechnique = calculerDureeMoisEntreDates(dateEffet, dateFinEnregistree);
 
     const contrat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const resultat = await client.query(

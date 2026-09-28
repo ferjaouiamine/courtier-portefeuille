@@ -179,8 +179,8 @@ function appliquerReglesDureeContrat() {
   else if (fractionnement.value === 'prime_unique') fractionnement.value = 'annuel';
   $('#zone-contrat-fractionnement').hidden = dureeFerme;
   $('#zone-contrat-date-echeance').hidden = dureeFerme;
-  $('#zone-contrat-date-fin').hidden = !dureeFerme;
-  dateFin.required = dureeFerme;
+  $('#zone-contrat-date-fin').hidden = false;
+  dateFin.required = true;
   actualiserContrainteDateFin();
   synchroniserSelectRecherchable(fractionnement);
   calculerDateEcheance();
@@ -1119,7 +1119,7 @@ function brancherFormulaires() {
         compagnieId: $('#contrat-compagnie').value, produitId: $('#contrat-produit').value,
         immatriculation: $('#contrat-immatriculation').value.trim(),
         dateEffet: $('#contrat-date-effet').value, dureeMois: Number($('#contrat-duree').value),
-        dateFin: $('#contrat-type-duree').value === 'ferme' ? $('#contrat-date-fin').value : null,
+        dateFin: $('#contrat-date-fin').value,
         typeDuree: $('#contrat-type-duree').value,
         fractionnement: $('#contrat-fractionnement').value,
         primeTotale: Number($('#contrat-prime').value),
