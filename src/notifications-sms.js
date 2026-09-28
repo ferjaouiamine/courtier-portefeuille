@@ -30,7 +30,7 @@ function construireRappelEcheance({ numeroContrat, dateEcheance, montantPrime })
 }
 
 function construireMessageAnniversaire(nomClient) {
-  return `Cher client(e),\n\nJoyeux anniversaire ${nomClient} !\nToute l'équipe Finasure vous souhaite une excellente journée et vous remercie pour votre confiance.`;
+  return `🎉 Joyeux anniversaire ${nomClient} !\nToute l’équipe Finasure vous souhaite une très belle journée.\nFinasure`;
 }
 
 function normaliserTelephone(telephone) {

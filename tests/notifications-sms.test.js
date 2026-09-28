@@ -46,7 +46,7 @@ test('construit le rappel avec le contrat, la date et la prime', () => {
 test("construit le message d'anniversaire avec le nom du client", () => {
   assert.equal(
     construireMessageAnniversaire('Mohamed Ben Ali'),
-    "Cher client(e),\n\nJoyeux anniversaire Mohamed Ben Ali !\nToute l'équipe Finasure vous souhaite une excellente journée et vous remercie pour votre confiance."
+    "🎉 Joyeux anniversaire Mohamed Ben Ali !\nToute l’équipe Finasure vous souhaite une très belle journée.\nFinasure"
   );
 });
 
