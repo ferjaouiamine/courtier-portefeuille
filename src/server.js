@@ -36,6 +36,7 @@ app.get('/api/sante', async (req, res) => {
   }
 });
 
+app.use('/api/cron', require('./routes/cron'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/clients', require('./routes/clients'));
 app.use('/api/contrats', require('./routes/contrats'));

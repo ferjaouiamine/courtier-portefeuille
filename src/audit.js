@@ -4,7 +4,7 @@ const CHAMPS_VISIBLES = {
   utilisateurs: ['nom', 'email', 'role', 'actif'],
   compagnies: ['code', 'nom'],
   produits: ['nom', 'branche'],
-  clients: ['type_client', 'nom', 'cin_ou_matricule', 'telephone', 'code_client_finasure', 'date_naissance'],
+  clients: ['type_client', 'nom', 'cin_ou_matricule', 'telephone', 'code_client_finasure', 'date_naissance', 'sms_autorise'],
   contrats: [
     'numero_contrat', 'societe_leasing', 'immatriculation', 'date_effet', 'date_fin',
     'fractionnement', 'prime_totale', 'feuille_caisse', 'retour_feuille_caisse',
@@ -31,6 +31,7 @@ const LIBELLES_CHAMPS = {
   telephone: 'Téléphone',
   code_client_finasure: 'Code Finasure',
   date_naissance: 'Date de naissance',
+  sms_autorise: 'SMS autorisés',
   numero_contrat: 'N° de contrat',
   societe_leasing: 'Société de leasing',
   immatriculation: 'Immatriculation',

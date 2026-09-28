@@ -84,6 +84,7 @@ create table if not exists clients (
   telephone             text,
   code_client_finasure  text,
   date_naissance        date,
+  sms_autorise          boolean not null default false,
   cree_le               timestamptz not null default now(),
   modifie_le            timestamptz not null default now(),
   supprime_le           timestamptz,
@@ -92,6 +93,7 @@ create table if not exists clients (
 
 create index if not exists ix_clients_nom_trgm on clients using gin (nom gin_trgm_ops);
 alter table clients add column if not exists date_naissance date;
+alter table clients add column if not exists sms_autorise boolean not null default false;
 alter table clients add column if not exists organisation_id uuid default organisation_courante() references organisations(id);
 update clients set organisation_id = '00000000-0000-4000-8000-000000000001' where organisation_id is null;
 alter table clients alter column organisation_id set not null;
@@ -370,6 +372,35 @@ create unique index if not exists ux_relances_auto on relances (echeance_id, dec
   where type_relance = 'automatique' and supprime_le is null;
 
 create index if not exists ix_relances_echeance on relances (echeance_id);
+
+-- =====================================================================
+-- Notifications SMS automatiques
+-- =====================================================================
+
+create table if not exists notifications_sms (
+  id uuid primary key default gen_random_uuid(),
+  organisation_id uuid not null default organisation_courante() references organisations(id),
+  client_id uuid not null references clients(id),
+  contrat_id uuid references contrats(id),
+  echeance_id uuid references echeances(id),
+  type_notification text not null check (type_notification in ('echeance', 'anniversaire')),
+  declencheur text not null check (declencheur in ('J-30', 'J-15', 'J-5', 'ANNIVERSAIRE')),
+  date_cible date not null,
+  telephone text not null,
+  message text not null,
+  statut text not null default 'en_attente' check (statut in ('en_attente', 'en_cours', 'envoyee', 'echec')),
+  fournisseur_id text,
+  erreur text,
+  tentatives integer not null default 0,
+  derniere_tentative timestamptz,
+  envoye_le timestamptz,
+  cree_le timestamptz not null default now()
+);
+create unique index if not exists ux_notifications_sms_echeance
+  on notifications_sms (echeance_id, declencheur) where type_notification = 'echeance';
+create unique index if not exists ux_notifications_sms_anniversaire
+  on notifications_sms (client_id, date_cible) where type_notification = 'anniversaire';
+create index if not exists ix_notifications_sms_statut on notifications_sms (organisation_id, statut, cree_le);
 
 -- =====================================================================
 -- Pièces jointes des contrats
@@ -814,7 +845,7 @@ declare
 begin
   foreach v_table in array array[
     'compagnies', 'produits', 'clients', 'contrats', 'echeances',
-    'paiements', 'relances', 'pieces_jointes_contrats', 'journal_audit'
+    'paiements', 'relances', 'notifications_sms', 'pieces_jointes_contrats', 'journal_audit'
   ]
   loop
     execute format('alter table %I enable row level security', v_table);

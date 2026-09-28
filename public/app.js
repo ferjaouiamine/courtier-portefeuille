@@ -898,6 +898,7 @@ function ouvrirModaleClient(client = null) {
   $('#client-telephone').value = client?.telephone || '';
   $('#client-code-finasure').value = client?.code_client_finasure || '';
   $('#client-date-naissance').value = client?.date_naissance?.slice(0, 10) || '';
+  $('#client-sms-autorise').checked = Boolean(client?.sms_autorise);
   $('#client-date-naissance').max = new Date().toISOString().slice(0, 10);
   $('#zone-client-date-naissance').hidden = $('#client-type').value !== 'personne_physique';
   synchroniserTousLesSelects();
@@ -1096,6 +1097,7 @@ function brancherFormulaires() {
         cinOuMatricule: $('#client-cin').value.trim(), telephone: $('#client-telephone').value.trim(),
         codeClientFinasure: $('#client-code-finasure').value.trim(),
         dateNaissance: $('#client-date-naissance').value || null,
+        smsAutorise: $('#client-sms-autorise').checked,
       };
       await api(id ? `/api/clients/${id}` : '/api/clients', {
         method: id ? 'PUT' : 'POST', body: JSON.stringify(corps),

@@ -22,7 +22,7 @@ routeur.get('/', async (req, res) => {
     }
     parametres.push(limite, offset);
     const resultat = await requete(
-      `select id, type_client, nom, cin_ou_matricule, telephone, code_client_finasure, date_naissance,
+      `select id, type_client, nom, cin_ou_matricule, telephone, code_client_finasure, date_naissance, sms_autorise,
               count(*) over() as total_elements
        from clients
        where supprime_le is null ${conditionRecherche}
@@ -92,7 +92,7 @@ routeur.get('/:id', async (req, res) => {
 
 routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
   try {
-    const { typeClient, nom, cinOuMatricule, telephone, codeClientFinasure, dateNaissance } = req.body || {};
+    const { typeClient, nom, cinOuMatricule, telephone, codeClientFinasure, dateNaissance, smsAutorise } = req.body || {};
     if (!typeClient || !nom) {
       return res.status(400).json({ erreur: 'Le type de client et le nom sont obligatoires.' });
     }
@@ -102,10 +102,10 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
 
     const resultat = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
       client.query(
-        `insert into clients (type_client, nom, cin_ou_matricule, telephone, code_client_finasure, date_naissance)
-         values ($1, $2, $3, $4, $5, $6) returning *`,
+        `insert into clients (type_client, nom, cin_ou_matricule, telephone, code_client_finasure, date_naissance, sms_autorise)
+         values ($1, $2, $3, $4, $5, $6, $7) returning *`,
         [typeClient, nom, cinOuMatricule || null, telephone || null, codeClientFinasure || null,
-          typeClient === 'personne_physique' ? dateNaissance || null : null]
+          typeClient === 'personne_physique' ? dateNaissance || null : null, smsAutorise === true]
       )
     );
 
@@ -117,7 +117,7 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
 
 routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
   try {
-    const { typeClient, nom, cinOuMatricule, telephone, codeClientFinasure, dateNaissance } = req.body || {};
+    const { typeClient, nom, cinOuMatricule, telephone, codeClientFinasure, dateNaissance, smsAutorise } = req.body || {};
     if (dateNaissance && dateNaissance > new Date().toISOString().slice(0, 10)) {
       return res.status(400).json({ erreur: 'La date de naissance ne peut pas être dans le futur.' });
     }
@@ -125,11 +125,11 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
       client.query(
         `update clients
          set type_client = $1, nom = $2, cin_ou_matricule = $3, telephone = $4,
-             code_client_finasure = $5, date_naissance = $6, modifie_le = now()
-         where id = $7 and supprime_le is null
+             code_client_finasure = $5, date_naissance = $6, sms_autorise = $7, modifie_le = now()
+         where id = $8 and supprime_le is null
          returning *`,
         [typeClient, nom, cinOuMatricule || null, telephone || null, codeClientFinasure || null,
-          typeClient === 'personne_physique' ? dateNaissance || null : null, req.params.id]
+          typeClient === 'personne_physique' ? dateNaissance || null : null, smsAutorise === true, req.params.id]
       )
     );
 
