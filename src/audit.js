@@ -36,7 +36,7 @@ const LIBELLES_CHAMPS = {
   societe_leasing: 'Société de leasing',
   immatriculation: 'Immatriculation',
   date_effet: "Date d'effet",
-  date_fin: 'Date de fin',
+  date_fin: 'Date de fin du contrat',
   fractionnement: 'Fréquence de paiement',
   prime_totale: 'Prime totale',
   statut: 'Statut',

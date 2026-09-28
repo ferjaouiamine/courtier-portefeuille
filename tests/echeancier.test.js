@@ -53,6 +53,11 @@ test("l'échéancier annuel couvre toute la période jusqu'à la date de fin inc
   assert.deepEqual(calculerNumerosTermes('2026-01-01', 'annuel', '2031-01-01'), [1, 2, 3, 4, 5]);
 });
 
+test("la date de fin du contrat ne devient pas une échéance hors fréquence", () => {
+  assert.deepEqual(calculerNumerosTermes('2026-01-01', 'annuel', '2030-06-30'), [1, 2, 3, 4]);
+  assert.equal(calculerDateTerme('2026-01-01', 'annuel', 4), '2030-01-01');
+});
+
 test('tous les termes sont maintenus jusqu’à la date de fin', async () => {
   const requetes = [];
   const client = {

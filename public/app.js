@@ -730,9 +730,7 @@ async function ouvrirFicheContrat(id) {
   etat.remarqueContrat = contrat.remarque || '';
   etat.paiementsContrat = contrat.paiements;
   etat.echeancesContrat = contrat.echeances;
-  const dateFinFerme = typeDureeContrat(contrat) === 'ferme'
-    ? `<div>Date de fin<div class="valeur">${formaterDate(contrat.date_fin)}</div></div>`
-    : '';
+  const dateFinContrat = `<div>Fin du contrat<div class="valeur">${formaterDate(contrat.date_fin)}</div></div>`;
   const commissionNette = contrat.feuille_caisse
     ? `<div>Commission nette<div class="valeur commission-nette">${echapper(contrat.com_nette_saisie || formaterMontant(contrat.com_nette))}</div></div>`
     : '';
@@ -778,7 +776,7 @@ async function ouvrirFicheContrat(id) {
     <div>Feuille de caisse<div class="valeur">${etiquetteFeuilleCaisse(contrat.feuille_caisse)}</div></div>
     <div>Retour feuille de caisse<div class="valeur">${etiquetteFeuilleCaisse(contrat.retour_feuille_caisse)}</div></div>
     ${commissionNette}
-    ${dateFinFerme}
+    ${dateFinContrat}
     <div>Statut<div class="valeur">${echapper(libelleCode(contrat.statut))}</div></div>
     <div>Remarque<div class="valeur remarque-contrat">${echapper(contrat.remarque || '—')}</div></div></div>
     <div class="carte"><div class="entete-section"><h3>Pièces jointes du contrat</h3>${ajoutPieceJointe}</div>

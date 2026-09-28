@@ -481,7 +481,7 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
 
     const entetes = [
       'Numéro de contrat', 'Client', 'Compagnie', 'Produit', 'Statut',
-      "Date d'effet", 'Date de fin', 'Durée', 'Feuille de caisse',
+      "Date d'effet", 'Date de fin du contrat', 'Durée', 'Feuille de caisse',
       'Prime totale', 'Commission nette', 'Remarque', 'Fréquence de paiement',
       'Retour feuille de caisse',
     ];
