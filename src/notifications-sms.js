@@ -26,7 +26,7 @@ function formaterMontantSms(valeur) {
 }
 
 function construireRappelEcheance({ numeroContrat, dateEcheance, montantPrime }) {
-  return `Cher client(e),\nVotre contrat d'assurance numéro ${numeroContrat} arrive à échéance le ${formaterDateSms(dateEcheance)}.\nMerci de procéder au paiement de votre prime d'assurance de ${formaterMontantSms(montantPrime)} DT.\nFinasure\n26 17 94 10 / 29 27 98 78\nEmail : contact@finasure-solutions.com`;
+  return `Cher(e) client(e),\nVotre contrat d'assurance numéro ${numeroContrat} arrive à échéance le ${formaterDateSms(dateEcheance)}.\nMerci de procéder au paiement de votre prime d'assurance de ${formaterMontantSms(montantPrime)} DT.\nFinasure\n26 17 94 10 / 29 27 98 78\nEmail : contact@finasure-solutions.com`;
 }
 
 function construireMessageAnniversaire(nomClient) {
