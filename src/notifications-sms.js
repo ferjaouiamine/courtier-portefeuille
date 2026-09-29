@@ -30,7 +30,7 @@ function construireRappelEcheance({ numeroContrat, dateEcheance, montantPrime })
 }
 
 function construireMessageAnniversaire(nomClient) {
-  return `🎉 Joyeux anniversaire ${nomClient} !\nToute l’équipe Finasure vous souhaite une très belle journée.\nFinasure`;
+  return `🎉 Joyeux anniversaire ${nomClient} !\nToute l’équipe Finasure assurance  vous souhaite une très belle journée.\nFinasure votre  conseiller en assurance \n26 17 94 10 / 29 27 98 78\nEmail : contact@finasure-solutions.com  `;
 }
 
 function normaliserTelephone(telephone) {
