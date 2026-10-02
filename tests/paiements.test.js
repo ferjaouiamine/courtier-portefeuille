@@ -18,7 +18,7 @@ test('la suppression du dernier paiement réinitialise la feuille de caisse du c
 
   assert.match(requetes[0].texte, /p\.supprime_le is null/);
   assert.deepEqual(requetes[1].parametres, [
-    'contrat-1', false, null, null, null, 'utilisateur-1',
+    'contrat-1', false, null, null, null, null, 'utilisateur-1',
   ]);
 });
 
@@ -33,6 +33,7 @@ test('la suppression conserve le résumé du paiement actif le plus récent', as
           com_nette: '9.034',
           com_nette_saisie: 'Commission 9,034',
           date_mise_a_jour: '2026-09-15',
+          remarque: 'Paiement reçu par chèque',
         }] };
       }
       return { rowCount: 1, rows: [] };
@@ -43,6 +44,7 @@ test('la suppression conserve le résumé du paiement actif le plus récent', as
 
   assert.match(requetes[0].texte, /order by p\.date_paiement desc/);
   assert.deepEqual(requetes[1].parametres, [
-    'contrat-2', true, '9.034', 'Commission 9,034', '2026-09-15', 'utilisateur-2',
+    'contrat-2', true, '9.034', 'Commission 9,034', '2026-09-15',
+    'Paiement reçu par chèque', 'utilisateur-2',
   ]);
 });

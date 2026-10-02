@@ -2,7 +2,7 @@
 
 async function synchroniserResumePaiementsContrat(client, contratId, utilisateurId) {
   const dernierPaiement = await client.query(
-    `select p.feuille_caisse, p.com_nette, p.com_nette_saisie,
+    `select p.feuille_caisse, p.com_nette, p.com_nette_saisie, p.remarque,
             coalesce(p.date_feuille_caisse, p.date_paiement) as date_mise_a_jour
      from paiements p
      join echeances e on e.id = p.echeance_id and e.supprime_le is null
@@ -18,7 +18,8 @@ async function synchroniserResumePaiementsContrat(client, contratId, utilisateur
        com_nette = $3,
        com_nette_saisie = $4,
        feuille_caisse_maj_le = $5,
-       modifie_par = $6,
+       remarque = $6,
+       modifie_par = $7,
        modifie_le = now()
      where id = $1 and supprime_le is null`,
     [
@@ -27,6 +28,7 @@ async function synchroniserResumePaiementsContrat(client, contratId, utilisateur
       paiement?.feuille_caisse ? paiement.com_nette : null,
       paiement?.feuille_caisse ? paiement.com_nette_saisie : null,
       paiement?.date_mise_a_jour || null,
+      paiement?.remarque || null,
       utilisateurId,
     ]
   );

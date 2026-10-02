@@ -328,6 +328,17 @@ update paiements set com_nette = null, date_feuille_caisse = null where not feui
 update paiements set com_nette_saisie = com_nette::text
 where feuille_caisse and com_nette is not null and nullif(trim(com_nette_saisie), '') is null;
 update paiements set com_nette_saisie = null where not feuille_caisse;
+with derniers_paiements as (
+  select distinct on (e.contrat_id) p.id, c.remarque
+  from paiements p
+  join echeances e on e.id = p.echeance_id and e.supprime_le is null
+  join contrats c on c.id = e.contrat_id and c.supprime_le is null
+  where p.supprime_le is null and nullif(trim(c.remarque), '') is not null
+  order by e.contrat_id, p.date_paiement desc, p.cree_le desc
+)
+update paiements p set remarque = historique.remarque
+from derniers_paiements historique
+where p.id = historique.id and nullif(trim(p.remarque), '') is null;
 update contrats c set feuille_caisse_maj_le = historique.derniere_date
 from (
   select e.contrat_id, max(coalesce(p.date_feuille_caisse, p.date_paiement)) as derniere_date

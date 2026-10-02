@@ -33,15 +33,16 @@ async function enregistrerPaiementInitial(client, contrat, utilisateurId, paieme
   const feuilleCaisse = paiement.feuilleCaisse === true;
   const encaissement = await client.query(
     `insert into paiements (
-       echeance_id, montant, mode_paiement, reference, date_paiement,
+       echeance_id, montant, mode_paiement, reference, remarque, date_paiement,
        feuille_caisse, com_nette, com_nette_saisie, date_feuille_caisse, saisi_par
-     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      returning *`,
     [
       echeance.rows[0].id,
       contrat.prime_totale,
       paiement.modePaiement || 'autre',
       paiement.reference || 'Paiement initial à la souscription',
+      paiement.remarque || null,
       contrat.date_effet,
       feuilleCaisse,
       feuilleCaisse ? paiement.commissionNette : null,

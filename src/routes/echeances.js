@@ -13,25 +13,6 @@ routeur.use(exigerConnexion);
 const MODES_PAIEMENT = ['especes', 'cheque', 'virement', 'carte', 'autre'];
 const TYPES_RELANCE = ['appel', 'sms', 'whatsapp', 'email', 'automatique'];
 
-async function synchroniserFeuilleCaisseContrat(
-  client, echeanceId, caisse, utilisateurId, remarqueFournie, remarqueContrat
-) {
-  await client.query(
-    `update contrats c
-     set feuille_caisse = $2, com_nette = $3, com_nette_saisie = $4,
-         feuille_caisse_maj_le = current_date,
-         remarque = case when $6 then $7 else c.remarque end,
-         modifie_par = $5, modifie_le = now()
-     from echeances e
-     where e.id = $1 and e.contrat_id = c.id
-       and e.type_echeance = 'terme'`,
-    [
-      echeanceId, caisse.feuilleCaisse, caisse.commissionNette,
-      caisse.commissionNetteSaisie, utilisateurId, remarqueFournie, remarqueContrat,
-    ]
-  );
-}
-
 // Agenda des échéances (termes de prime + renouvellements), filtrable.
 routeur.get('/', async (req, res) => {
   try {
@@ -94,7 +75,7 @@ routeur.post('/completer', exigerRole('admin', 'agent'), async (req, res) => {
 routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) => {
   try {
     const {
-      montant, modePaiement, reference, remarqueContrat, remarque, datePaiement,
+      montant, modePaiement, reference, remarquePaiement, remarqueContrat, remarque, datePaiement,
       feuilleCaisse, commissionNette, dateFeuilleCaisse,
     } = req.body || {};
 
@@ -104,8 +85,7 @@ routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) =>
     if (!MODES_PAIEMENT.includes(modePaiement)) {
       return res.status(400).json({ erreur: 'Mode de paiement invalide.' });
     }
-    const remarqueFournie = remarqueContrat !== undefined || remarque !== undefined;
-    const remarqueNormalisee = String(remarqueContrat ?? remarque ?? '').trim();
+    const remarqueNormalisee = String(remarquePaiement ?? remarqueContrat ?? remarque ?? '').trim();
     if (remarqueNormalisee.length > 2000) {
       return res.status(400).json({ erreur: 'La remarque ne peut pas dépasser 2 000 caractères.' });
     }
@@ -146,23 +126,21 @@ routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) =>
 
       const paiement = await client.query(
         `insert into paiements (
-           echeance_id, montant, mode_paiement, reference, date_paiement,
+           echeance_id, montant, mode_paiement, reference, remarque, date_paiement,
            feuille_caisse, com_nette, com_nette_saisie, date_feuille_caisse, saisi_par
          ) values (
-           $1, $2, $3, $4, coalesce($5, current_date),
-           $6, $7, $8, case when $6 then coalesce($9, $5, current_date) else null end, $10
+           $1, $2, $3, $4, $5, coalesce($6, current_date),
+           $7, $8, $9, case when $7 then coalesce($10, $6, current_date) else null end, $11
          )
          returning *`,
         [
-          req.params.id, montant, modePaiement, reference || null, datePaiement || null,
+          req.params.id, montant, modePaiement, reference || null, remarqueNormalisee || null,
+          datePaiement || null,
           caisse.feuilleCaisse, caisse.commissionNette, caisse.commissionNetteSaisie,
           dateFeuilleCaisse || null, req.utilisateur.id,
         ]
       );
-      await synchroniserFeuilleCaisseContrat(
-        client, req.params.id, caisse, req.utilisateur.id,
-        remarqueFournie, remarqueNormalisee || null
-      );
+      await synchroniserResumePaiementsContrat(client, ligne.contrat_id, req.utilisateur.id);
 
       const statut = await client.query('select statut from echeances where id = $1', [req.params.id]);
       let prochaineEcheance = null;
@@ -196,7 +174,7 @@ routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) =>
 routeur.put('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (req, res) => {
   try {
     const {
-      montant, modePaiement, reference, remarqueContrat, remarque, datePaiement,
+      montant, modePaiement, reference, remarquePaiement, remarqueContrat, remarque, datePaiement,
       feuilleCaisse, commissionNette, dateFeuilleCaisse,
     } = req.body || {};
     if (!Number.isFinite(Number(montant)) || Number(montant) <= 0) {
@@ -205,8 +183,7 @@ routeur.put('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (r
     if (!MODES_PAIEMENT.includes(modePaiement)) {
       return res.status(400).json({ erreur: 'Mode de paiement invalide.' });
     }
-    const remarqueFournie = remarqueContrat !== undefined || remarque !== undefined;
-    const remarqueNormalisee = String(remarqueContrat ?? remarque ?? '').trim();
+    const remarqueNormalisee = String(remarquePaiement ?? remarqueContrat ?? remarque ?? '').trim();
     if (remarqueNormalisee.length > 2000) {
       return res.status(400).json({ erreur: 'La remarque ne peut pas dépasser 2 000 caractères.' });
     }
@@ -214,7 +191,7 @@ routeur.put('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (r
 
     const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const paiementExistant = await client.query(
-        `select p.*, e.montant_prime
+        `select p.*, e.montant_prime, e.contrat_id
          from paiements p
          join echeances e on e.id = p.echeance_id and e.supprime_le is null
          join contrats c on c.id = e.contrat_id and c.supprime_le is null
@@ -242,23 +219,21 @@ routeur.put('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (r
 
       const paiement = await client.query(
         `update paiements set
-           montant = $1, mode_paiement = $2, reference = $3,
-           date_paiement = coalesce($4, date_paiement),
-           feuille_caisse = $5, com_nette = $6, com_nette_saisie = $7,
-           date_feuille_caisse = case when $5 then coalesce($8, $4, date_feuille_caisse, current_date) else null end,
-           saisi_par = $9
-         where id = $10 and echeance_id = $11 and supprime_le is null
+           montant = $1, mode_paiement = $2, reference = $3, remarque = $4,
+           date_paiement = coalesce($5, date_paiement),
+           feuille_caisse = $6, com_nette = $7, com_nette_saisie = $8,
+           date_feuille_caisse = case when $6 then coalesce($9, $5, date_feuille_caisse, current_date) else null end,
+           saisi_par = $10
+         where id = $11 and echeance_id = $12 and supprime_le is null
          returning *`,
         [
-          montant, modePaiement, reference || null, datePaiement || null,
-          caisse.feuilleCaisse, caisse.commissionNette, caisse.commissionNetteSaisie, dateFeuilleCaisse || null,
+          montant, modePaiement, reference || null, remarqueNormalisee || null,
+          datePaiement || null, caisse.feuilleCaisse, caisse.commissionNette,
+          caisse.commissionNetteSaisie, dateFeuilleCaisse || null,
           req.utilisateur.id, req.params.paiementId, req.params.id,
         ]
       );
-      await synchroniserFeuilleCaisseContrat(
-        client, req.params.id, caisse, req.utilisateur.id,
-        remarqueFournie, remarqueNormalisee || null
-      );
+      await synchroniserResumePaiementsContrat(client, ligne.contrat_id, req.utilisateur.id);
       const statut = await client.query('select statut from echeances where id = $1', [req.params.id]);
       return { paiement: paiement.rows[0], statutEcheance: statut.rows[0]?.statut };
     });

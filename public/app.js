@@ -749,7 +749,8 @@ async function ouvrirFicheContrat(id) {
     <td>${ligne.feuille_caisse ? formaterDate(ligne.date_feuille_caisse) : ''}</td>
     <td class="commission-nette">${ligne.feuille_caisse ? echapper(ligne.com_nette_saisie || formaterMontant(ligne.com_nette)) : ''}</td>
     <td>${echapper(libelleCode(ligne.mode_paiement))}</td>
-    <td>${echapper(ligne.reference || '—')}</td></tr>`).join('');
+    <td>${echapper(ligne.reference || '—')}</td>
+    <td><span class="remarque-contrat" title="${echapper(ligne.remarque || '')}">${echapper(ligne.remarque || '—')}</span></td></tr>`).join('');
   const historique = contrat.historique.map((ligne) => `<div class="entree-historique">
     <span class="date">${formaterDate(ligne.cree_le, true)}</span>
     <span><strong>${echapper(ACTIONS_AUDIT[ligne.action] || libelleCode(ligne.action))}</strong>
@@ -784,7 +785,7 @@ async function ouvrirFicheContrat(id) {
     <div class="carte"><h3>Échéancier complet</h3>${echeances
       ? `<div class="tableau-responsive"><table id="tableau-echeancier-contrat"><thead><tr><th>N°</th><th>Date</th><th>Montant</th><th>Statut</th></tr></thead><tbody>${echeances}</tbody></table></div>`
       : '<p class="etat-vide">Aucune échéance pour ce contrat.</p>'}</div>
-    <div class="carte"><h3>Paiements</h3>${paiements ? `<div class="tableau-responsive"><table id="tableau-paiements-contrat"><thead><tr><th>Date du paiement</th><th>Montant</th><th>Feuille de caisse</th><th>Date de la feuille</th><th>Commission nette</th><th>Mode</th><th>Référence</th></tr></thead><tbody>${paiements}</tbody></table></div>` : '<p class="etat-vide">Aucun paiement.</p>'}</div>
+    <div class="carte"><h3>Paiements</h3>${paiements ? `<div class="tableau-responsive"><table id="tableau-paiements-contrat"><thead><tr><th>Date du paiement</th><th>Montant</th><th>Feuille de caisse</th><th>Date de la feuille</th><th>Commission nette</th><th>Mode</th><th>Référence</th><th>Remarque</th></tr></thead><tbody>${paiements}</tbody></table></div>` : '<p class="etat-vide">Aucun paiement.</p>'}</div>
     <div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>`;
   await changerVue('fiche-contrat');
 }
@@ -960,7 +961,7 @@ async function soumettre(formulaire, action) {
   try { await action(); } catch (e) { afficherErreur(e.message, dialogue); } finally { bouton.disabled = false; }
 }
 
-function ouvrirModalePaiement({ paiement = null, echeanceId, solde = 0, remarqueContrat = etat.remarqueContrat } = {}) {
+function ouvrirModalePaiement({ paiement = null, echeanceId, solde = 0 } = {}) {
   const aujourdHui = new Date().toISOString().slice(0, 10);
   etat.edition.paiement = paiement?.id || null;
   etat.echeanceId = echeanceId || paiement?.echeance_id;
@@ -970,7 +971,10 @@ function ouvrirModalePaiement({ paiement = null, echeanceId, solde = 0, remarque
   $('#encaissement-montant').value = paiement ? Number(paiement.montant).toFixed(3) : Number(solde).toFixed(3);
   $('#encaissement-mode').value = paiement?.mode_paiement || 'especes';
   $('#encaissement-reference').value = paiement?.reference || '';
-  $('#encaissement-remarque').value = remarqueContrat || '';
+  const estDernierPaiement = paiement
+    && String(paiement.id) === String(etat.paiementsContrat[0]?.id);
+  $('#encaissement-remarque').value = paiement?.remarque
+    ?? (estDernierPaiement ? etat.remarqueContrat : '');
   $('#encaissement-date').value = paiement?.date_paiement?.slice(0, 10) || aujourdHui;
   $('#encaissement-feuille-caisse-oui').checked = Boolean(paiement?.feuille_caisse);
   $('#encaissement-feuille-caisse-non').checked = !paiement?.feuille_caisse;
@@ -1003,11 +1007,9 @@ async function actionDeleguee(event) {
   const { action, id } = bouton.dataset;
   try {
     if (action === 'encaisser') {
-      const contrat = ligneContrat ? await api(`/api/contrats/${ligneContrat.dataset.contratId}`) : null;
       ouvrirModalePaiement({
         echeanceId: id,
         solde: bouton.dataset.solde,
-        remarqueContrat: contrat?.remarque || '',
       });
     } else if (action === 'modifier-paiement') {
       const paiement = etat.paiementsContrat.find((ligne) => String(ligne.id) === String(id));
@@ -1157,7 +1159,7 @@ function brancherFormulaires() {
         { method: paiementId ? 'PUT' : 'POST', body: JSON.stringify({
           montant: Number($('#encaissement-montant').value), modePaiement: $('#encaissement-mode').value,
           reference: $('#encaissement-reference').value.trim(), datePaiement: $('#encaissement-date').value || null,
-          remarqueContrat: $('#encaissement-remarque').value.trim(),
+          remarquePaiement: $('#encaissement-remarque').value.trim(),
           feuilleCaisse: $('#encaissement-feuille-caisse-oui').checked,
           commissionNette: $('#encaissement-feuille-caisse-oui').checked
             ? $('#encaissement-commission-nette').value.trim() : null,

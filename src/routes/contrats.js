@@ -360,6 +360,7 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
       await enregistrerPaiementInitial(client, resultat.rows[0], req.utilisateur.id, {
         modePaiement: modePaiementInitial || 'autre',
         reference: String(referencePaiementInitial || '').trim() || null,
+        remarque: remarqueNormalisee || null,
         feuilleCaisse: false,
         commissionNette: null,
       });
