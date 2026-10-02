@@ -966,6 +966,7 @@ function ouvrirModalePaiement({ paiement = null, echeanceId, solde = 0, remarque
   etat.echeanceId = echeanceId || paiement?.echeance_id;
   $('#titre-modale-encaissement').textContent = paiement ? 'Modifier le paiement' : 'Encaisser';
   $('#bouton-enregistrer-encaissement').textContent = paiement ? 'Enregistrer les modifications' : "Enregistrer l'encaissement";
+  $('#bouton-supprimer-paiement').hidden = !paiement;
   $('#encaissement-montant').value = paiement ? Number(paiement.montant).toFixed(3) : Number(solde).toFixed(3);
   $('#encaissement-mode').value = paiement?.mode_paiement || 'especes';
   $('#encaissement-reference').value = paiement?.reference || '';
@@ -1016,6 +1017,18 @@ async function actionDeleguee(event) {
       const echeance = etat.echeancesContrat.find((ligne) => String(ligne.id) === String(id));
       if (!echeance) throw new Error("Échéance introuvable. Rechargez la fiche du contrat.");
       ouvrirModaleEcheance(echeance);
+    } else if (action === 'supprimer-paiement'
+        && window.confirm('Supprimer ce paiement ? Le statut de l’échéance sera recalculé.')) {
+      await api(`/api/echeances/${etat.echeanceId}/paiements/${etat.edition.paiement}`, { method: 'DELETE' });
+      $('#modale-encaissement').close();
+      await ouvrirFicheContrat(etat.contratId);
+      afficherSucces('Paiement supprimé.', $('#vue-fiche-contrat'));
+    } else if (action === 'supprimer-echeance'
+        && window.confirm('Supprimer cette échéance ? Cette action sera enregistrée dans le journal.')) {
+      await api(`/api/echeances/${etat.edition.echeance}`, { method: 'DELETE' });
+      $('#modale-echeance').close();
+      await ouvrirFicheContrat(etat.contratId);
+      afficherSucces('Échéance supprimée.', $('#vue-fiche-contrat'));
     } else if (action === 'relancer') {
       etat.echeanceId = id;
       $('#formulaire-relance').reset();
@@ -1082,7 +1095,7 @@ async function actionDeleguee(event) {
       await chargerCorbeille();
     }
   } catch (e) {
-    afficherErreur(e.message);
+    afficherErreur(e.message, $('dialog[open]') || undefined);
   }
 }
 

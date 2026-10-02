@@ -5,6 +5,7 @@ const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
 const { completerTousLesEcheanciers, synchroniserProchaineEcheance } = require('../echeancier');
 const { normaliserFeuilleCaisse } = require('../regles-contrat');
+const { synchroniserResumePaiementsContrat } = require('../paiements');
 
 const routeur = express.Router();
 routeur.use(exigerConnexion);
@@ -269,6 +270,43 @@ routeur.put('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (r
   }
 });
 
+// Suppression logique d'un paiement. Le trigger PostgreSQL recalcule le statut de l'échéance.
+routeur.delete('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
+      const paiement = await client.query(
+        `select p.id, p.echeance_id, e.contrat_id
+         from paiements p
+         join echeances e on e.id = p.echeance_id and e.supprime_le is null
+         join contrats c on c.id = e.contrat_id and c.supprime_le is null
+         where p.id = $1 and p.echeance_id = $2 and p.supprime_le is null
+         for update of p, e`,
+        [req.params.paiementId, req.params.id]
+      );
+      if (paiement.rowCount === 0) return null;
+
+      const ligne = paiement.rows[0];
+      await client.query(
+        `update paiements set supprime_le = now(), supprime_par = $1
+         where id = $2 and supprime_le is null`,
+        [req.utilisateur.id, req.params.paiementId]
+      );
+      await synchroniserResumePaiementsContrat(
+        client, ligne.contrat_id, req.utilisateur.id
+      );
+      const echeance = await client.query(
+        'select statut from echeances where id = $1',
+        [ligne.echeance_id]
+      );
+      return { statutEcheance: echeance.rows[0]?.statut };
+    });
+    if (!resultat) return res.status(404).json({ erreur: 'Paiement introuvable.' });
+    return res.json({ ok: true, ...resultat });
+  } catch (erreur) {
+    return gererErreur(res, erreur, 'echeances.suppression-paiement');
+  }
+});
+
 // Modification manuelle d'une ligne de l'échéancier depuis la fiche contrat.
 routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
   try {
@@ -327,6 +365,56 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
     return res.json(resultat);
   } catch (erreur) {
     return gererErreur(res, erreur, 'echeances.modification');
+  }
+});
+
+// Suppression logique d'une échéance sans paiement, conservée dans le journal d'audit.
+routeur.delete('/:id', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
+      const echeance = await client.query(
+        `select e.id, e.contrat_id
+         from echeances e
+         join contrats c on c.id = e.contrat_id and c.supprime_le is null
+         where e.id = $1 and e.supprime_le is null
+         for update of e`,
+        [req.params.id]
+      );
+      if (echeance.rowCount === 0) return null;
+
+      const paiements = await client.query(
+        `select count(*)::int as nombre from paiements
+         where echeance_id = $1 and supprime_le is null`,
+        [req.params.id]
+      );
+      if (paiements.rows[0].nombre > 0) {
+        const erreur = new Error("Supprimez d'abord les paiements de cette échéance.");
+        erreur.status = 409;
+        throw erreur;
+      }
+
+      await client.query(
+        `update echeances set supprime_le = now(), supprime_par = $1
+         where id = $2 and supprime_le is null`,
+        [req.utilisateur.id, req.params.id]
+      );
+      await client.query(
+        `delete from notifications_sms
+         where echeance_id = $1 and statut <> 'envoyee'`,
+        [req.params.id]
+      );
+      await client.query(
+        `update contrats set echeancier_personnalise = true,
+             modifie_par = $1, modifie_le = now()
+         where id = $2 and supprime_le is null`,
+        [req.utilisateur.id, echeance.rows[0].contrat_id]
+      );
+      return true;
+    });
+    if (!resultat) return res.status(404).json({ erreur: 'Échéance introuvable.' });
+    return res.json({ ok: true });
+  } catch (erreur) {
+    return gererErreur(res, erreur, 'echeances.suppression');
   }
 });
 

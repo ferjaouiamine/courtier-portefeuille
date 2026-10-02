@@ -39,14 +39,14 @@ test('construit le rappel avec le contrat, la date et la prime', () => {
       dateEcheance: '2026-10-30',
       montantPrime: '1082.097',
     }),
-    "Cher client(e),\nVotre contrat d'assurance numéro 25702000004 arrive à échéance le 30/10/2026.\nMerci de procéder au paiement de votre prime d'assurance de 1 082,097 DT.\nFinasure\n26 17 94 10 / 29 27 98 78\nEmail : contact@finasure-solutions.com"
+    "Cher(e) client(e),\nVotre contrat d'assurance numéro 25702000004 arrive à échéance le 30/10/2026.\nMerci de procéder au paiement de votre prime d'assurance de 1 082,097 DT.\nFinasure\n26 17 94 10 / \n29 27 98 78\nEmail : contact@finasure-solutions.com"
   );
 });
 
 test("construit le message d'anniversaire avec le nom du client", () => {
   assert.equal(
     construireMessageAnniversaire('Mohamed Ben Ali'),
-    "🎉 Joyeux anniversaire Mohamed Ben Ali !\nToute l’équipe Finasure vous souhaite une très belle journée.\nFinasure"
+    "🎉 Joyeux anniversaire Mohamed Ben Ali !\nToute l’équipe Finasure assurance  vous souhaite une très belle journée.\nFinasure votre  conseiller en assurance \n26 17 94 10 / \n29 27 98 78\nEmail : contact@finasure-solutions.com  "
   );
 });
 
