@@ -725,6 +725,7 @@ async function chargerContrats() {
 }
 
 async function ouvrirFicheContrat(id) {
+  await Promise.all([chargerReferentiels(), chargerClientsPourSelect()]);
   const contrat = await api(`/api/contrats/${id}`);
   etat.contratId = contrat.id;
   etat.remarqueContrat = contrat.remarque || '';
@@ -736,6 +737,7 @@ async function ouvrirFicheContrat(id) {
     : '';
   const actions = peutEcrire() ? `<div class="actions-ligne">
     <button type="button" data-action="modifier-contrat">Modifier</button>
+    <button type="button" class="principal" data-action="creer-avenant">Créer un avenant</button>
     ${contrat.statut === 'en_cours' && typeDureeContrat(contrat) === 'rtr' ? '<button type="button" data-action="renouveler-contrat">Renouveler</button>' : ''}
     <button type="button" class="danger" data-action="archiver-contrat">Archiver</button></div>` : '';
   const echeances = contrat.echeances.map((ligne) => `<tr${peutEcrire() ? ` data-action="modifier-echeance" data-id="${echapper(ligne.id)}" title="Modifier l'échéance"` : ''}>
@@ -756,6 +758,38 @@ async function ouvrirFicheContrat(id) {
     <span><strong>${echapper(ACTIONS_AUDIT[ligne.action] || libelleCode(ligne.action))}</strong>
     par ${echapper(ligne.utilisateur_nom)}${ligne.utilisateur_email ? `<br><span class="texte-secondaire">${echapper(ligne.utilisateur_email)}</span>` : ''}
     ${detailsAudit(ligne)}</span></div>`).join('');
+  const libelleValeurAvenant = (modification, valeur) => {
+    if (valeur === null || valeur === undefined || valeur === '') return 'Non renseigné';
+    if (modification.champ === 'compagnie_id') return etat.compagnies.find((x) => x.id === valeur)?.nom || valeur;
+    if (modification.champ === 'produit_id') return etat.produits.find((x) => x.id === valeur)?.nom || valeur;
+    if (['souscripteur_id', 'payeur_id'].includes(modification.champ)) return etat.clients.find((x) => x.id === valeur)?.nom || valeur;
+    if (modification.champ === 'prime_totale') return formaterMontant(valeur);
+    return formaterValeurAudit(valeur);
+  };
+  const versions = (contrat.avenants || []).map((version) => {
+    const modifications = (version.modifications || []).map((modification) => `<li>
+      <strong>${echapper(modification.libelle || modification.champ)} :</strong>
+      <span>${echapper(libelleValeurAvenant(modification, modification.avant))}</span>
+      <span aria-hidden="true">→</span>
+      <span>${echapper(libelleValeurAvenant(modification, modification.apres))}</span>
+    </li>`).join('');
+    const etatVersion = version.est_version_active
+      ? 'En vigueur'
+      : (version.applique_le ? 'Historique' : 'Planifié');
+    const classeVersion = version.est_version_active
+      ? 'appliquee'
+      : (version.applique_le ? 'historique' : 'planifiee');
+    const periodeVersion = version.date_fin_validite
+      ? `du ${formaterDate(version.date_effet)} au ${formaterDate(version.date_fin_validite)}`
+      : `à partir du ${formaterDate(version.date_effet)}`;
+    return `<article class="version-contrat">
+      <div class="version-contrat-entete"><div><strong>${version.numero_version === 1 ? 'Version initiale' : `Avenant n° ${version.numero_version - 1}`}</strong>
+      <span>Version ${version.numero_version} · valable ${periodeVersion}</span></div>
+      <span class="etiquette-version ${classeVersion}">${etatVersion}</span></div>
+      ${modifications ? `<ul class="differences-avenant">${modifications}</ul>` : '<p class="texte-secondaire">Données d’origine du contrat.</p>'}
+      <p class="texte-secondaire">Créée par ${echapper(version.auteur_nom || 'Système')} le ${formaterDate(version.cree_le, true)}</p>
+    </article>`;
+  }).join('');
   const piecesJointes = (contrat.piecesJointes || []).map((piece) => `<li class="piece-jointe">
     <div><a href="/api/contrats/${echapper(contrat.id)}/pieces-jointes/${echapper(piece.id)}/telecharger">${echapper(piece.nom_original)}</a>
     <span>${echapper((Number(piece.taille_octets) / 1024 / 1024).toFixed(2))} Mo · ${formaterDate(piece.ajoute_le, true)}</span></div>
@@ -786,6 +820,7 @@ async function ouvrirFicheContrat(id) {
       ? `<div class="tableau-responsive"><table id="tableau-echeancier-contrat"><thead><tr><th>N°</th><th>Date</th><th>Montant</th><th>Statut</th></tr></thead><tbody>${echeances}</tbody></table></div>`
       : '<p class="etat-vide">Aucune échéance pour ce contrat.</p>'}</div>
     <div class="carte"><h3>Paiements</h3>${paiements ? `<div class="tableau-responsive"><table id="tableau-paiements-contrat"><thead><tr><th>Date du paiement</th><th>Montant</th><th>Feuille de caisse</th><th>Date de la feuille</th><th>Commission nette</th><th>Mode</th><th>Référence</th><th>Remarque</th></tr></thead><tbody>${paiements}</tbody></table></div>` : '<p class="etat-vide">Aucun paiement.</p>'}</div>
+    <div class="carte"><h3>Avenants / Historique</h3><div class="liste-versions-contrat">${versions || '<p class="etat-vide">Aucune version disponible.</p>'}</div></div>
     <div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>`;
   await changerVue('fiche-contrat');
 }
@@ -908,6 +943,12 @@ function ouvrirModaleClient(client = null) {
 async function ouvrirModaleContrat(contrat = null) {
   await Promise.all([chargerReferentiels(), chargerClientsPourSelect()]);
   etat.edition.contrat = contrat?.id || null;
+  etat.edition.avenant = false;
+  $('#zone-date-effet-avenant').hidden = true;
+  $('#contrat-date-effet-avenant').required = false;
+  $('#contrat-client').disabled = false;
+  $('#contrat-numero').readOnly = false;
+  $('#contrat-date-effet').readOnly = false;
   $('#titre-modale-contrat').textContent = contrat ? 'Modifier le contrat' : 'Nouveau contrat';
   const champs = {
     '#contrat-client': contrat?.client_id, '#contrat-souscripteur': contrat?.souscripteur_id || contrat?.client_id,
@@ -934,6 +975,20 @@ async function ouvrirModaleContrat(contrat = null) {
   appliquerReglesDureeContrat();
   synchroniserTousLesSelects();
   $('#modale-contrat').showModal();
+}
+
+async function ouvrirModaleAvenant(contrat) {
+  await ouvrirModaleContrat(contrat);
+  etat.edition.avenant = true;
+  $('#titre-modale-contrat').textContent = `Créer un avenant — ${contrat.numero_contrat}`;
+  $('#zone-date-effet-avenant').hidden = false;
+  $('#contrat-date-effet-avenant').required = true;
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  $('#contrat-date-effet-avenant').min = aujourdhui;
+  $('#contrat-date-effet-avenant').value = aujourdhui;
+  $('#contrat-client').disabled = true;
+  $('#contrat-numero').readOnly = true;
+  $('#contrat-date-effet').readOnly = true;
 }
 
 function ouvrirModaleCompagnie(compagnie = null) {
@@ -1037,6 +1092,8 @@ async function actionDeleguee(event) {
       $('#modale-relance').showModal();
     } else if (action === 'modifier-contrat') {
       await ouvrirModaleContrat(await api(`/api/contrats/${etat.contratId}`));
+    } else if (action === 'creer-avenant') {
+      await ouvrirModaleAvenant(await api(`/api/contrats/${etat.contratId}`));
     } else if (action === 'renouveler-contrat' && window.confirm('Renouveler ce contrat sur la période suivante ?')) {
       const nouveau = await api(`/api/contrats/${etat.contratId}/renouveler`, { method: 'POST' });
       await ouvrirFicheContrat(nouveau.id);
@@ -1125,6 +1182,7 @@ function brancherFormulaires() {
     event.preventDefault();
     soumettre(event.currentTarget, async () => {
       const id = etat.edition.contrat;
+      const estAvenant = etat.edition.avenant === true;
       const corps = {
         numeroContrat: $('#contrat-numero').value.trim(), clientId: $('#contrat-client').value,
         souscripteurId: $('#contrat-souscripteur').value,
@@ -1141,12 +1199,13 @@ function brancherFormulaires() {
         remarque: $('#contrat-remarque').value.trim(),
         modePaiementInitial: $('#contrat-paiement-mode').value,
         referencePaiementInitial: $('#contrat-paiement-reference').value.trim(),
+        dateEffetAvenant: estAvenant ? $('#contrat-date-effet-avenant').value : null,
       };
-      const contrat = await api(id ? `/api/contrats/${id}` : '/api/contrats', {
-        method: id ? 'PUT' : 'POST', body: JSON.stringify(corps),
+      const contrat = await api(estAvenant ? `/api/contrats/${id}/avenants` : (id ? `/api/contrats/${id}` : '/api/contrats'), {
+        method: estAvenant ? 'POST' : (id ? 'PUT' : 'POST'), body: JSON.stringify(corps),
       });
       $('#modale-contrat').close();
-      await ouvrirFicheContrat(contrat.id);
+      await ouvrirFicheContrat(estAvenant ? id : contrat.id);
     });
   });
 

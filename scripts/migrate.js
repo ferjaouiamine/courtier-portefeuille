@@ -19,22 +19,30 @@ async function main() {
   await client.connect();
 
   try {
+    // Les anciens déclencheurs d'audit peuvent encore dépendre du contexte de
+    // l'organisation pendant une migration idempotente.
+    await client.query(
+      "select set_config('app.organisation_id', '00000000-0000-4000-8000-000000000001', false)"
+    );
     const cheminSchema = path.join(__dirname, '..', 'db', 'schema.sql');
     console.log('Application du schéma :', cheminSchema);
     await executerFichierSql(client, cheminSchema);
     console.log('Schéma appliqué avec succès.');
 
     const cheminImport = path.join(__dirname, '..', 'db', 'import_donnees.sql');
-    if (fs.existsSync(cheminImport)) {
+    const importerDonnees = String(process.env.IMPORT_DONNEES || '').toLowerCase() === 'true';
+    if (importerDonnees && fs.existsSync(cheminImport)) {
       await client.query(
         "select set_config('app.organisation_id', '00000000-0000-4000-8000-000000000001', false)"
       );
       console.log('Application des données importées :', cheminImport);
       await executerFichierSql(client, cheminImport);
       console.log('Données importées avec succès.');
-    } else {
+    } else if (importerDonnees) {
       console.log('Aucun fichier db/import_donnees.sql trouvé — étape ignorée.');
       console.log('Générez-le avec : python scripts/import_excel.py WF_1_1_26.xlsx');
+    } else {
+      console.log("Import des données ignoré (IMPORT_DONNEES n'est pas true).");
     }
   } finally {
     await client.end();

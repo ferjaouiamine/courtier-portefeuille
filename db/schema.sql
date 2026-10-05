@@ -182,6 +182,84 @@ alter table contrats add constraint ck_contrats_remarque_longueur check (
   remarque is null or char_length(remarque) <= 2000
 );
 
+-- Versions métier des contrats. La ligne contrats reste l'identité stable et
+-- reçoit automatiquement la version arrivée à sa date d'effet.
+create table if not exists avenants_contrats (
+  id                    uuid primary key default gen_random_uuid(),
+  organisation_id       uuid not null default organisation_courante() references organisations(id),
+  contrat_id             uuid not null references contrats(id) on delete cascade,
+  numero_version         integer not null check (numero_version >= 1),
+  date_effet             date not null,
+  date_fin_validite      date,
+  souscripteur_id        uuid references clients(id),
+  societe_leasing        text,
+  payeur_id              uuid references clients(id),
+  compagnie_id           uuid not null references compagnies(id),
+  produit_id             uuid not null references produits(id),
+  type_contrat           text,
+  immatriculation        text,
+  date_fin_contrat       date not null,
+  duree_mois             integer not null check (duree_mois between 1 and 1200),
+  fractionnement         text not null check (fractionnement in ('annuel', 'semestriel', 'trimestriel', 'prime_unique')),
+  prime_totale           numeric(12, 3) not null check (prime_totale >= 0),
+  retour_feuille_caisse  boolean not null default false,
+  remarque               text,
+  statut                 text not null check (statut in ('en_cours', 'renouvele', 'resilie', 'archive')),
+  modifications          jsonb not null default '[]'::jsonb,
+  cree_par               uuid references utilisateurs(id),
+  cree_le                timestamptz not null default now(),
+  applique_le             timestamptz,
+  unique (contrat_id, numero_version),
+  unique (contrat_id, date_effet),
+  constraint ck_avenants_validite check (date_fin_validite is null or date_fin_validite >= date_effet),
+  constraint ck_avenants_periode_contrat check (date_fin_contrat > date_effet)
+);
+create index if not exists ix_avenants_contrat_effet
+  on avenants_contrats (contrat_id, date_effet desc);
+create index if not exists ix_avenants_organisation_effet
+  on avenants_contrats (organisation_id, date_effet);
+
+insert into avenants_contrats (
+  organisation_id, contrat_id, numero_version, date_effet, souscripteur_id,
+  societe_leasing, payeur_id, compagnie_id, produit_id, type_contrat,
+  immatriculation, date_fin_contrat, duree_mois, fractionnement, prime_totale,
+  retour_feuille_caisse, remarque, statut, modifications, cree_par, cree_le, applique_le
+)
+select c.organisation_id, c.id, 1, c.date_effet, c.souscripteur_id,
+       c.societe_leasing, c.payeur_id, c.compagnie_id, c.produit_id, c.type_contrat,
+       c.immatriculation, c.date_fin, c.duree_mois, c.fractionnement, c.prime_totale,
+       c.retour_feuille_caisse, c.remarque, c.statut, '[]'::jsonb, c.cree_par, c.cree_le, c.cree_le
+from contrats c
+where not exists (select 1 from avenants_contrats a where a.contrat_id = c.id);
+
+create or replace function f_verifier_organisation_avenant() returns trigger as $$
+begin
+  if not exists (
+       select 1 from contrats where id = new.contrat_id and organisation_id = new.organisation_id
+     )
+     or not exists (
+       select 1 from compagnies where id = new.compagnie_id and organisation_id = new.organisation_id
+     )
+     or not exists (
+       select 1 from produits where id = new.produit_id and organisation_id = new.organisation_id
+     )
+     or (new.souscripteur_id is not null and not exists (
+       select 1 from clients where id = new.souscripteur_id and organisation_id = new.organisation_id
+     ))
+     or (new.payeur_id is not null and not exists (
+       select 1 from clients where id = new.payeur_id and organisation_id = new.organisation_id
+     )) then
+    raise exception 'Référence d''avenant appartenant à une autre organisation' using errcode = '23503';
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_verifier_organisation_avenant on avenants_contrats;
+create trigger trg_verifier_organisation_avenant
+before insert or update of organisation_id, contrat_id, compagnie_id, produit_id, souscripteur_id, payeur_id
+on avenants_contrats for each row execute function f_verifier_organisation_avenant();
+
 -- Depuis Finasure Flow, la commission nette est saisie depuis la feuille de caisse.
 do $$
 begin
@@ -560,8 +638,8 @@ begin
   v_utilisateur := nullif(current_setting('app.utilisateur_id', true), '')::uuid;
 
   if tg_op = 'INSERT' then
-    insert into journal_audit (utilisateur_id, action, table_cible, ligne_id, etat_avant, etat_apres)
-    values (v_utilisateur, 'creation', tg_table_name, new.id, null, to_jsonb(new));
+    insert into journal_audit (organisation_id, utilisateur_id, action, table_cible, ligne_id, etat_avant, etat_apres)
+    values (new.organisation_id, v_utilisateur, 'creation', tg_table_name, new.id, null, to_jsonb(new));
     return new;
   elsif tg_op = 'UPDATE' then
     if old.supprime_le is null and new.supprime_le is not null then
@@ -571,8 +649,8 @@ begin
     else
       v_action := 'modification';
     end if;
-    insert into journal_audit (utilisateur_id, action, table_cible, ligne_id, etat_avant, etat_apres)
-    values (v_utilisateur, v_action, tg_table_name, new.id, to_jsonb(old), to_jsonb(new));
+    insert into journal_audit (organisation_id, utilisateur_id, action, table_cible, ligne_id, etat_avant, etat_apres)
+    values (new.organisation_id, v_utilisateur, v_action, tg_table_name, new.id, to_jsonb(old), to_jsonb(new));
     return new;
   end if;
   return null;
@@ -844,7 +922,7 @@ declare
   v_table text;
 begin
   foreach v_table in array array[
-    'compagnies', 'produits', 'clients', 'contrats', 'echeances',
+    'compagnies', 'produits', 'clients', 'contrats', 'avenants_contrats', 'echeances',
     'paiements', 'relances', 'notifications_sms', 'pieces_jointes_contrats', 'journal_audit'
   ]
   loop

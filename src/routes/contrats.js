@@ -12,6 +12,11 @@ const {
   typeDureeDepuisFractionnement,
 } = require('../regles-contrat');
 const { enregistrerPaiementInitial, synchroniserProchaineEcheance } = require('../echeancier');
+const {
+  appliquerAvenantsDus,
+  calculerModifications,
+  creerVersionInitiale,
+} = require('../avenants');
 
 const routeur = express.Router();
 routeur.use(exigerConnexion);
@@ -50,6 +55,8 @@ const TRIS_AUTORISES = {
 // Liste triable et filtrable du portefeuille.
 routeur.get('/', async (req, res) => {
   try {
+    await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
+      appliquerAvenantsDus(client, req.utilisateur.id));
     const { statut, compagnie_id: compagnieId, produit_id: produitId, recherche } = req.query;
     const tri = TRIS_AUTORISES[req.query.tri] || 'c.date_effet';
     const ordre = req.query.ordre === 'asc' ? 'asc' : 'desc';
@@ -118,6 +125,8 @@ routeur.get('/', async (req, res) => {
 // Fiche contrat : échéancier complet, paiements rattachés et historique des modifications.
 routeur.get('/:id', async (req, res) => {
   try {
+    await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
+      appliquerAvenantsDus(client, req.utilisateur.id));
     const contrat = await requete(
       `select c.*,
               case when c.feuille_caisse and exists (
@@ -185,11 +194,28 @@ routeur.get('/:id', async (req, res) => {
       [req.params.id]
     );
 
+    const avenants = await requete(
+      `select a.*, u.nom as auteur_nom,
+              (a.date_effet <= current_date and (a.date_fin_validite is null or a.date_fin_validite >= current_date)) as est_version_active,
+              cp.nom as compagnie_nom, pr.nom as produit_nom,
+              s.nom as souscripteur_nom, pa.nom as payeur_nom
+       from avenants_contrats a
+       left join utilisateurs u on u.id = a.cree_par and u.organisation_id = a.organisation_id
+       left join compagnies cp on cp.id = a.compagnie_id
+       left join produits pr on pr.id = a.produit_id
+       left join clients s on s.id = a.souscripteur_id
+       left join clients pa on pa.id = a.payeur_id
+       where a.contrat_id = $1
+       order by a.numero_version desc`,
+      [req.params.id]
+    );
+
     res.json({
       ...contrat.rows[0],
       echeances: echeances.rows,
       paiements: paiements.rows,
       historique: historique.rows.map(resumerLigneAudit),
+      avenants: avenants.rows,
       piecesJointes: piecesJointes.rows,
     });
   } catch (erreur) {
@@ -365,6 +391,7 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
         commissionNette: null,
       });
       await synchroniserProchaineEcheance(client, resultat.rows[0]);
+      await creerVersionInitiale(client, resultat.rows[0]);
       return resultat.rows[0];
     });
 
@@ -416,6 +443,26 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
       );
       if (resultat.rowCount === 0) return null;
       await synchroniserProchaineEcheance(client, resultat.rows[0]);
+      await creerVersionInitiale(client, resultat.rows[0]);
+      await client.query(
+        `update avenants_contrats set
+           souscripteur_id = $2, societe_leasing = $3, payeur_id = $4,
+           compagnie_id = $5, produit_id = $6, type_contrat = $7, immatriculation = $8,
+           date_fin_contrat = $9, duree_mois = $10, fractionnement = $11,
+           prime_totale = $12, retour_feuille_caisse = $13, remarque = $14, statut = $15
+         where id = (
+           select id from avenants_contrats
+           where contrat_id = $1 and date_effet <= current_date
+           order by date_effet desc, numero_version desc limit 1
+         )`,
+        [
+          resultat.rows[0].id, resultat.rows[0].souscripteur_id, resultat.rows[0].societe_leasing,
+          resultat.rows[0].payeur_id, resultat.rows[0].compagnie_id, resultat.rows[0].produit_id,
+          resultat.rows[0].type_contrat, resultat.rows[0].immatriculation, resultat.rows[0].date_fin,
+          resultat.rows[0].duree_mois, resultat.rows[0].fractionnement, resultat.rows[0].prime_totale,
+          resultat.rows[0].retour_feuille_caisse, resultat.rows[0].remarque, resultat.rows[0].statut,
+        ]
+      );
       return resultat.rows[0];
     });
 
@@ -425,6 +472,115 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
     res.json({ ...contrat, type_duree: regles.typeDuree });
   } catch (erreur) {
     gererErreur(res, erreur, 'contrats.modification');
+  }
+});
+
+routeur.post('/:id/avenants', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const {
+      dateEffetAvenant, souscripteurId, societeLeasing, payeurId,
+      compagnieId, produitId, typeContrat, immatriculation,
+      dateFin, dureeMois, fractionnement, primeTotale, statut,
+      retourFeuilleCaisse, remarque,
+    } = req.body || {};
+    if (!dateEffetAvenant || !compagnieId || !produitId || !fractionnement) {
+      return res.status(400).json({ erreur: "La date d'effet et les données obligatoires de l'avenant sont requises." });
+    }
+    if (!Number.isFinite(Number(primeTotale)) || Number(primeTotale) < 0) {
+      return res.status(400).json({ erreur: 'La prime doit être un montant positif ou nul.' });
+    }
+    const remarqueNormalisee = String(remarque || '').trim();
+    if (remarqueNormalisee.length > 2000) {
+      return res.status(400).json({ erreur: 'La remarque ne doit pas dépasser 2 000 caractères.' });
+    }
+    const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
+
+    const avenant = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
+      await appliquerAvenantsDus(client, req.utilisateur.id);
+      const contratResultat = await client.query(
+        'select * from contrats where id = $1 and supprime_le is null for update',
+        [req.params.id]
+      );
+      const contrat = contratResultat.rows[0];
+      if (!contrat) return null;
+      await creerVersionInitiale(client, contrat);
+
+      const derniereVersion = await client.query(
+        `select * from avenants_contrats where contrat_id = $1
+         order by date_effet desc, numero_version desc limit 1 for update`,
+        [contrat.id]
+      );
+      const precedente = derniereVersion.rows[0];
+      if (dateEffetAvenant <= precedente.date_effet) {
+        const erreur = new Error("La date d'effet doit être postérieure à celle de la dernière version.");
+        erreur.code = 'AVENANT_DATE_INVALIDE';
+        throw erreur;
+      }
+      if (precedente.date_effet > new Date().toISOString().slice(0, 10)) {
+        const erreur = new Error('Un avenant futur existe déjà pour ce contrat.');
+        erreur.code = 'AVENANT_FUTUR_EXISTANT';
+        throw erreur;
+      }
+      const dateFinEnregistree = dateFin
+        ? validerDateFinFerme(dateEffetAvenant, dateFin)
+        : calculerDateFin(dateEffetAvenant, dureeMois ?? 12);
+      const dureeTechnique = calculerDureeMoisEntreDates(contrat.date_effet, dateFinEnregistree);
+      const nouvelleVersion = {
+        souscripteur_id: souscripteurId || contrat.client_id,
+        societe_leasing: String(societeLeasing || '').trim() || null,
+        payeur_id: payeurId || souscripteurId || contrat.client_id,
+        compagnie_id: compagnieId,
+        produit_id: produitId,
+        type_contrat: typeContrat || null,
+        immatriculation: String(immatriculation || '').trim() || null,
+        date_fin_contrat: dateFinEnregistree,
+        duree_mois: Number(dureeTechnique),
+        fractionnement: regles.fractionnement,
+        prime_totale: Number(primeTotale),
+        retour_feuille_caisse: retourFeuilleCaisse === true,
+        remarque: remarqueNormalisee || null,
+        statut: statut || contrat.statut,
+      };
+      const modifications = calculerModifications(precedente, nouvelleVersion);
+      if (!modifications.length) {
+        const erreur = new Error("Modifiez au moins un champ avant d'enregistrer l'avenant.");
+        erreur.code = 'AVENANT_SANS_MODIFICATION';
+        throw erreur;
+      }
+      await client.query(
+        `update avenants_contrats set date_fin_validite = ($2::date - 1)
+         where id = $1`,
+        [precedente.id, dateEffetAvenant]
+      );
+      const resultat = await client.query(
+        `insert into avenants_contrats (
+           contrat_id, numero_version, date_effet, souscripteur_id, societe_leasing,
+           payeur_id, compagnie_id, produit_id, type_contrat, immatriculation,
+           date_fin_contrat, duree_mois, fractionnement, prime_totale,
+           retour_feuille_caisse, remarque, statut, modifications, cree_par
+         ) values (
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+           $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19
+         ) returning *`,
+        [
+          contrat.id, precedente.numero_version + 1, dateEffetAvenant,
+          nouvelleVersion.souscripteur_id, nouvelleVersion.societe_leasing,
+          nouvelleVersion.payeur_id, nouvelleVersion.compagnie_id, nouvelleVersion.produit_id,
+          nouvelleVersion.type_contrat, nouvelleVersion.immatriculation,
+          nouvelleVersion.date_fin_contrat, nouvelleVersion.duree_mois,
+          nouvelleVersion.fractionnement, nouvelleVersion.prime_totale,
+          nouvelleVersion.retour_feuille_caisse, nouvelleVersion.remarque,
+          nouvelleVersion.statut, JSON.stringify(modifications), req.utilisateur.id,
+        ]
+      );
+      await appliquerAvenantsDus(client, req.utilisateur.id);
+      return resultat.rows[0];
+    });
+    if (!avenant) return res.status(404).json({ erreur: 'Contrat introuvable ou archivé.' });
+    return res.status(201).json(avenant);
+  } catch (erreur) {
+    if (erreur.code?.startsWith('AVENANT_')) return res.status(400).json({ erreur: erreur.message });
+    return gererErreur(res, erreur, 'contrats.avenant');
   }
 });
 
