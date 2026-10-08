@@ -41,6 +41,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/clients', require('./routes/clients'));
 app.use('/api/contrats', require('./routes/contrats'));
 app.use('/api/echeances', require('./routes/echeances'));
+app.use('/api/superadmin', require('./routes/superadmin'));
 app.use('/api', require('./routes/divers'));
 
 app.use(express.static(path.join(__dirname, '..', 'public')));

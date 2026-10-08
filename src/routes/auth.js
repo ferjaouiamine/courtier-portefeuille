@@ -41,7 +41,7 @@ routeur.post('/connexion', limiteurConnexion, async (req, res) => {
 
   try {
     const resultat = await requete(
-      `select u.id, u.nom, u.email, u.mot_de_passe_hache, u.role, u.organisation_id
+      `select u.id, u.nom, u.email, u.mot_de_passe_hache, u.role, u.super_admin, u.organisation_id
        from utilisateurs u
        join organisations o on o.id = u.organisation_id and o.actif = true
        where u.email = $1 and u.supprime_le is null`,
@@ -72,6 +72,7 @@ routeur.post('/connexion', limiteurConnexion, async (req, res) => {
       id: utilisateur.id,
       nom: utilisateur.nom,
       role: utilisateur.role,
+      superAdmin: utilisateur.super_admin === true,
       voitHistorique: peutVoirHistorique(utilisateur),
     });
   } catch (erreur) {

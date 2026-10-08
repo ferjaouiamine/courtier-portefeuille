@@ -38,6 +38,8 @@ alter table utilisateurs add column if not exists organisation_id uuid default o
 update utilisateurs set organisation_id = '00000000-0000-4000-8000-000000000001' where organisation_id is null;
 alter table utilisateurs alter column organisation_id set not null;
 create index if not exists ix_utilisateurs_organisation on utilisateurs (organisation_id);
+-- Le super administrateur gère les comptes et accède à la comptabilité.
+alter table utilisateurs add column if not exists super_admin boolean not null default false;
 
 create table if not exists compagnies (
   id           uuid primary key default gen_random_uuid(),

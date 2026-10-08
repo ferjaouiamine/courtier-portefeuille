@@ -38,6 +38,7 @@ function creerJeton(utilisateur) {
       nom: utilisateur.nom,
       email: utilisateur.email,
       role: utilisateur.role,
+      superAdmin: utilisateur.super_admin === true,
       organisationId: utilisateur.organisation_id,
     },
     process.env.JWT_SECRET,

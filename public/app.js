@@ -15,7 +15,8 @@ const etat = {
   echeancesContrat: [],
   echeanciersCompletes: false,
   edition: {},
-  pages: { echeances: 1, contrats: 1, clients: 1, journal: 1 },
+  utilisateurs: [],
+  pages: { echeances: 1, contrats: 1, clients: 1, journal: 1, comptabilite: 1 },
 };
 
 const $ = (selecteur, racine = document) => racine.querySelector(selecteur);
@@ -462,6 +463,10 @@ function voitHistorique() {
   return etat.utilisateur?.voitHistorique === true;
 }
 
+function estSuperAdmin() {
+  return etat.utilisateur?.superAdmin === true;
+}
+
 function afficherConnexion() {
   etat.utilisateur = null;
   etat.echeanciersCompletes = false;
@@ -522,6 +527,7 @@ async function api(chemin, options = {}) {
 function appliquerDroits() {
   $('#nav-corbeille').hidden = etat.utilisateur.role !== 'admin';
   $('#nav-journal').hidden = !voitHistorique();
+  $('#nav-superadmin').hidden = !estSuperAdmin();
   $$('#bouton-nouveau-contrat, #bouton-nouveau-client, #bouton-nouvelle-compagnie, #bouton-nouveau-produit')
     .forEach((element) => { element.hidden = !peutEcrire(); });
 }
@@ -529,6 +535,7 @@ function appliquerDroits() {
 async function changerVue(nom) {
   if (nom === 'corbeille' && etat.utilisateur?.role !== 'admin') nom = 'tableau-de-bord';
   if (nom === 'journal' && !voitHistorique()) nom = 'tableau-de-bord';
+  if (nom === 'superadmin' && !estSuperAdmin()) nom = 'tableau-de-bord';
   etat.vue = nom;
   effacerErreurs();
   $$('.vue').forEach((vue) => { vue.hidden = vue.id !== `vue-${nom}`; });
@@ -546,6 +553,7 @@ async function changerVue(nom) {
     referentiel: chargerReferentiel,
     journal: chargerJournal,
     corbeille: chargerCorbeille,
+    superadmin: chargerSuperAdmin,
   };
   try {
     if (chargeurs[nom]) await chargeurs[nom]();
@@ -941,6 +949,84 @@ async function chargerJournal() {
   afficherPagination('journal', resultat.pagination);
 }
 
+function periodeComptabilite() {
+  return { du: $('#filtre-comptabilite-du').value, au: $('#filtre-comptabilite-au').value };
+}
+
+async function chargerPaiementsComptabilite() {
+  const resultat = await api(`/api/superadmin/comptabilite/paiements?${parametres({
+    ...periodeComptabilite(), page: etat.pages.comptabilite, limite: 50,
+  })}`);
+  $('#corps-tableau-comptabilite').innerHTML = resultat.donnees.map((ligne) => `<tr data-contrat-id="${echapper(ligne.contrat_id)}">
+    <td>${formaterDate(ligne.date_paiement)}</td><td>${echapper(ligne.client_nom)}</td>
+    <td>${echapper(ligne.numero_contrat)}</td><td>${echapper(ligne.compagnie_nom)}</td>
+    <td>${formaterMontant(ligne.montant)}</td><td>${etiquetteFeuilleCaisse(ligne.feuille_caisse)}</td>
+    <td class="commission-nette">${ligne.feuille_caisse ? formaterMontant(ligne.com_nette) : ''}</td>
+    <td>${echapper(ligne.saisi_par_nom || '—')}</td></tr>`).join('');
+  $('#etat-vide-comptabilite').hidden = resultat.donnees.length > 0;
+  afficherPagination('comptabilite', resultat.pagination);
+}
+
+async function chargerComptabilite() {
+  const donnees = await api(`/api/superadmin/comptabilite?${parametres(periodeComptabilite())}`);
+  $('#filtre-comptabilite-du').value = donnees.du;
+  $('#filtre-comptabilite-au').value = donnees.au;
+  const totaux = donnees.totaux;
+  const statistiques = [
+    ['Commission nette', formaterMontant(totaux.commission_nette)],
+    ['Primes encaissées', formaterMontant(totaux.encaisse)],
+    ['Paiements', totaux.nb_paiements],
+    ['Sans feuille de caisse', totaux.nb_sans_feuille, Number(totaux.nb_sans_feuille) > 0],
+    ['Encaissé sans commission saisie', formaterMontant(totaux.encaisse_sans_feuille)],
+  ];
+  $('#stats-comptabilite').innerHTML = statistiques.map(([libelle, valeur, alerte]) =>
+    `<div class="carte stat${alerte ? ' alerte' : ''}"><div class="valeur">${echapper(valeur)}</div><div class="libelle">${libelle}</div></div>`).join('');
+  $('#corps-comptabilite-mois').innerHTML = donnees.par_mois.map((ligne) => `<tr>
+    <td>${echapper(ligne.mois)}</td><td>${echapper(ligne.nb_paiements)}</td>
+    <td>${formaterMontant(ligne.encaisse)}</td>
+    <td class="commission-nette">${formaterMontant(ligne.commission_nette)}</td></tr>`).join('');
+  $('#etat-vide-comptabilite-mois').hidden = donnees.par_mois.length > 0;
+  $('#comptabilite-compagnie').innerHTML = repartitionHtml(donnees.par_compagnie, 'nom', 'commission_nette');
+  $('#comptabilite-branche').innerHTML = repartitionHtml(donnees.par_branche, 'nom', 'commission_nette');
+  $('#comptabilite-utilisateur').innerHTML = repartitionHtml(donnees.par_utilisateur, 'nom', 'commission_nette');
+}
+
+async function chargerUtilisateurs() {
+  etat.utilisateurs = await api('/api/superadmin/utilisateurs');
+  const roles = { admin: 'Administrateur', agent: 'Agent', lecture: 'Lecture seule' };
+  $('#corps-tableau-utilisateurs').innerHTML = etat.utilisateurs.map((ligne) => `<tr>
+    <td><strong>${echapper(ligne.nom)}</strong></td><td>${echapper(ligne.email)}</td>
+    <td>${echapper(roles[ligne.role] || ligne.role)}${ligne.super_admin ? ' <span class="etiquette-audit">Super admin</span>' : ''}</td>
+    <td><span class="etiquette-audit ${ligne.actif ? 'restauration' : 'suppression'}">${ligne.actif ? 'Actif' : 'Désactivé'}</span></td>
+    <td>${formaterDate(ligne.derniere_connexion, true)}</td>
+    <td><div class="actions-ligne">${ligne.actif ? `
+      <button type="button" data-action="modifier-utilisateur" data-id="${echapper(ligne.id)}">Modifier</button>
+      <button type="button" data-action="mot-de-passe-utilisateur" data-id="${echapper(ligne.id)}">Mot de passe</button>
+      ${ligne.id === etat.utilisateur.id ? '' : `<button type="button" class="danger" data-action="desactiver-utilisateur" data-id="${echapper(ligne.id)}">Désactiver</button>`}`
+    : `<button type="button" data-action="reactiver-utilisateur" data-id="${echapper(ligne.id)}">Réactiver</button>`}
+    </div></td></tr>`).join('');
+}
+
+async function chargerSuperAdmin() {
+  etat.pages.comptabilite = 1;
+  // La comptabilité fixe d'abord la période par défaut, reprise par le détail des paiements.
+  await Promise.all([chargerComptabilite().then(chargerPaiementsComptabilite), chargerUtilisateurs()]);
+}
+
+function ouvrirModaleUtilisateur(utilisateur = null) {
+  etat.edition.utilisateur = utilisateur?.id || null;
+  $('#formulaire-utilisateur').reset();
+  $('#titre-modale-utilisateur').textContent = utilisateur ? `Modifier ${utilisateur.nom}` : 'Nouvel utilisateur';
+  $('#utilisateur-nom').value = utilisateur?.nom || '';
+  $('#utilisateur-email').value = utilisateur?.email || '';
+  $('#utilisateur-role').value = utilisateur?.role || 'agent';
+  $('#utilisateur-super-admin').checked = Boolean(utilisateur?.super_admin);
+  $('#zone-utilisateur-mot-de-passe').hidden = Boolean(utilisateur);
+  $('#utilisateur-mot-de-passe').required = !utilisateur;
+  synchroniserTousLesSelects();
+  $('#modale-utilisateur').showModal();
+}
+
 function ouvrirModaleClient(client = null) {
   etat.edition.client = client?.id || null;
   $('#formulaire-client').reset();
@@ -1196,6 +1282,7 @@ async function actionDeleguee(event) {
       else if (cible === 'contrats') await chargerContrats();
       else if (cible === 'clients') await chargerClients();
       else if (cible === 'journal') await chargerJournal();
+      else if (cible === 'comptabilite') await chargerPaiementsComptabilite();
     } else if (action === 'modifier-client') {
       const clientId = id || etat.clientId;
       ouvrirModaleClient(await api(`/api/clients/${clientId}`));
@@ -1204,6 +1291,23 @@ async function actionDeleguee(event) {
       await api(`/api/clients/${clientId}`, { method: 'DELETE' });
       etat.clients = [];
       await changerVue('clients');
+    } else if (action === 'nouvel-utilisateur') {
+      ouvrirModaleUtilisateur();
+    } else if (action === 'modifier-utilisateur') {
+      ouvrirModaleUtilisateur(etat.utilisateurs.find((x) => x.id === id));
+    } else if (action === 'mot-de-passe-utilisateur') {
+      const utilisateur = etat.utilisateurs.find((x) => x.id === id);
+      etat.edition.utilisateur = id;
+      $('#formulaire-mot-de-passe').reset();
+      $('#titre-modale-mot-de-passe').textContent = `Nouveau mot de passe — ${utilisateur?.nom || ''}`;
+      $('#modale-mot-de-passe').showModal();
+    } else if (action === 'desactiver-utilisateur'
+        && window.confirm('Désactiver ce compte ? Il ne pourra plus se connecter.')) {
+      await api(`/api/superadmin/utilisateurs/${id}`, { method: 'DELETE' });
+      await chargerUtilisateurs();
+    } else if (action === 'reactiver-utilisateur') {
+      await api(`/api/superadmin/utilisateurs/${id}/restaurer`, { method: 'POST' });
+      await chargerUtilisateurs();
     } else if (action === 'modifier-compagnie') {
       ouvrirModaleCompagnie(etat.compagnies.find((x) => String(x.id) === id));
     } else if (action === 'archiver-compagnie' && window.confirm('Archiver cette compagnie ?')) {
@@ -1348,6 +1452,32 @@ function brancherFormulaires() {
     });
   });
 
+  $('#formulaire-utilisateur').addEventListener('submit', (event) => {
+    event.preventDefault();
+    soumettre(event.currentTarget, async () => {
+      const id = etat.edition.utilisateur;
+      await api(id ? `/api/superadmin/utilisateurs/${id}` : '/api/superadmin/utilisateurs', {
+        method: id ? 'PUT' : 'POST', body: JSON.stringify({
+          nom: $('#utilisateur-nom').value.trim(), email: $('#utilisateur-email').value.trim(),
+          role: $('#utilisateur-role').value, superAdmin: $('#utilisateur-super-admin').checked,
+          motDePasse: id ? undefined : $('#utilisateur-mot-de-passe').value,
+        }),
+      });
+      $('#modale-utilisateur').close(); await chargerUtilisateurs();
+    });
+  });
+
+  $('#formulaire-mot-de-passe').addEventListener('submit', (event) => {
+    event.preventDefault();
+    soumettre(event.currentTarget, async () => {
+      await api(`/api/superadmin/utilisateurs/${etat.edition.utilisateur}/mot-de-passe`, {
+        method: 'PUT', body: JSON.stringify({ motDePasse: $('#nouveau-mot-de-passe').value }),
+      });
+      $('#modale-mot-de-passe').close();
+      afficherSucces('Mot de passe modifié.', $('#vue-superadmin'));
+    });
+  });
+
   $('#formulaire-compagnie').addEventListener('submit', (event) => {
     event.preventDefault();
     soumettre(event.currentTarget, async () => {
@@ -1452,6 +1582,13 @@ function brancherEvenements() {
   $('#bouton-nouvelle-compagnie').addEventListener('click', () => ouvrirModaleCompagnie());
   $('#bouton-nouveau-produit').addEventListener('click', () => ouvrirModaleProduit());
   $('#contrat-prime').addEventListener('input', actualiserResumePrimeAvenant);
+  ['#filtre-comptabilite-du', '#filtre-comptabilite-au'].forEach((id) => $(id).addEventListener('change', async () => {
+    etat.pages.comptabilite = 1;
+    try {
+      await chargerComptabilite();
+      await chargerPaiementsComptabilite();
+    } catch (erreur) { afficherErreur(erreur.message); }
+  }));
   $('#client-type').addEventListener('change', () => {
     const physique = $('#client-type').value === 'personne_physique';
     $('#zone-client-date-naissance').hidden = !physique;

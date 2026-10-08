@@ -31,8 +31,11 @@ async function main() {
 
     const hache = await hacherMotDePasse(motDePasse);
     const resultat = await client.query(
-      `insert into utilisateurs (organisation_id, nom, email, mot_de_passe_hache, role)
-       values ($1, $2, $3, $4, 'admin') returning id`,
+      // Le premier administrateur d'une organisation en est aussi le super administrateur.
+      `insert into utilisateurs (organisation_id, nom, email, mot_de_passe_hache, role, super_admin)
+       values ($1, $2, $3, $4, 'admin', not exists (
+         select 1 from utilisateurs where organisation_id = $1 and super_admin and supprime_le is null
+       )) returning id`,
       [organisationId, nom, email, hache]
     );
 

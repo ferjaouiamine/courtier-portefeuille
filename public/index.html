@@ -39,6 +39,7 @@
         <button data-vue="referentiel">Référentiel</button>
         <button data-vue="journal" id="nav-journal" hidden>Journal</button>
         <button data-vue="corbeille" id="nav-corbeille" hidden>Corbeille</button>
+        <button data-vue="superadmin" id="nav-superadmin" hidden>Super admin</button>
       </nav>
       <div id="zone-utilisateur">
         <span id="nom-utilisateur"></span>
@@ -290,6 +291,66 @@
         </div>
       </section>
 
+      <!-- ----- Super administrateur ----- -->
+      <section id="vue-superadmin" class="vue" hidden>
+        <div class="entete-vue"><h2>Super administrateur</h2></div>
+        <div class="barre-filtres">
+          <label>Du
+            <input type="date" id="filtre-comptabilite-du" />
+          </label>
+          <label>Au
+            <input type="date" id="filtre-comptabilite-au" />
+          </label>
+        </div>
+        <div class="grille-stats" id="stats-comptabilite"></div>
+        <div class="carte">
+          <h3>Par mois</h3>
+          <div class="tableau-responsive">
+            <table>
+              <thead><tr><th>Mois</th><th>Paiements</th><th>Encaissé</th><th>Commission nette</th></tr></thead>
+              <tbody id="corps-comptabilite-mois"></tbody>
+            </table>
+          </div>
+          <p id="etat-vide-comptabilite-mois" class="etat-vide" hidden>Aucun encaissement sur cette période.</p>
+        </div>
+        <div class="grille-repartition">
+          <div class="carte">
+            <h3>Commission nette par compagnie</h3>
+            <div id="comptabilite-compagnie"></div>
+          </div>
+          <div class="carte">
+            <h3>Commission nette par branche</h3>
+            <div id="comptabilite-branche"></div>
+          </div>
+        </div>
+        <div class="carte">
+          <h3>Commission nette par utilisateur</h3>
+          <div id="comptabilite-utilisateur"></div>
+        </div>
+        <div class="carte" style="padding:0">
+          <div class="tableau-responsive">
+            <table>
+              <thead><tr><th>Date</th><th>Client</th><th>Contrat</th><th>Compagnie</th><th>Montant</th><th>Feuille de caisse</th><th>Commission nette</th><th>Saisi par</th></tr></thead>
+              <tbody id="corps-tableau-comptabilite"></tbody>
+            </table>
+          </div>
+          <p id="etat-vide-comptabilite" class="etat-vide" hidden>Aucun encaissement sur cette période.</p>
+        </div>
+        <div id="pagination-comptabilite" class="pagination"></div>
+        <div class="carte" style="padding:0">
+          <div class="entete-section" style="padding:1rem">
+            <h3>Utilisateurs</h3>
+            <button type="button" class="principal" data-action="nouvel-utilisateur">Nouvel utilisateur</button>
+          </div>
+          <div class="tableau-responsive">
+            <table>
+              <thead><tr><th>Nom</th><th>E-mail</th><th>Rôle</th><th>État</th><th>Dernière connexion</th><th></th></tr></thead>
+              <tbody id="corps-tableau-utilisateurs"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
     </main>
   </div>
 
@@ -521,6 +582,53 @@
     <div class="pied-modale">
       <button type="button" data-fermer-modale>Annuler</button>
       <button type="submit" form="formulaire-relance" class="principal">Enregistrer</button>
+    </div>
+  </dialog>
+
+  <dialog id="modale-utilisateur">
+    <div class="entete-modale"><h3 id="titre-modale-utilisateur">Nouvel utilisateur</h3><button type="button" class="discret" data-fermer-modale>✕</button></div>
+    <form id="formulaire-utilisateur" class="corps-modale">
+      <div class="grille-formulaire">
+        <label>Nom
+          <input type="text" id="utilisateur-nom" required />
+        </label>
+        <label>E-mail
+          <input type="email" id="utilisateur-email" required />
+        </label>
+        <label>Rôle
+          <select id="utilisateur-role">
+            <option value="admin">Administrateur</option>
+            <option value="agent">Agent</option>
+            <option value="lecture">Lecture seule</option>
+          </select>
+        </label>
+        <label id="zone-utilisateur-mot-de-passe">Mot de passe (8 caractères minimum)
+          <input type="text" id="utilisateur-mot-de-passe" minlength="8" autocomplete="off" />
+        </label>
+        <label class="case-a-cocher pleine-largeur">
+          <input type="checkbox" id="utilisateur-super-admin" />
+          <span>Super administrateur (gestion des comptes et comptabilité)</span>
+        </label>
+      </div>
+    </form>
+    <div class="pied-modale">
+      <button type="button" data-fermer-modale>Annuler</button>
+      <button type="submit" form="formulaire-utilisateur" class="principal">Enregistrer</button>
+    </div>
+  </dialog>
+
+  <dialog id="modale-mot-de-passe">
+    <div class="entete-modale"><h3 id="titre-modale-mot-de-passe">Nouveau mot de passe</h3><button type="button" class="discret" data-fermer-modale>✕</button></div>
+    <form id="formulaire-mot-de-passe" class="corps-modale">
+      <div class="grille-formulaire">
+        <label class="pleine-largeur">Nouveau mot de passe (8 caractères minimum)
+          <input type="text" id="nouveau-mot-de-passe" minlength="8" autocomplete="off" required />
+        </label>
+      </div>
+    </form>
+    <div class="pied-modale">
+      <button type="button" data-fermer-modale>Annuler</button>
+      <button type="submit" form="formulaire-mot-de-passe" class="principal">Enregistrer</button>
     </div>
   </dialog>
 
