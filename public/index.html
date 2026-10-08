@@ -303,9 +303,9 @@
           </label>
         </div>
         <div class="grille-stats" id="stats-comptabilite"></div>
-        <div class="carte">
+        <div class="carte" id="carte-comptabilite-mois">
           <h3>Par mois</h3>
-          <p class="texte-secondaire">Cliquez sur un mois pour voir, modifier ou supprimer ses paiements.</p>
+          <p class="texte-secondaire">Cliquez sur un mois pour afficher juste en dessous le détail de ses paiements. Cliquez à nouveau pour le refermer.</p>
           <div class="tableau-responsive">
             <table id="tableau-comptabilite-mois">
               <thead><tr><th>Mois</th><th>Nombre de paiements</th><th>Encaissé</th><th>Commission nette</th><th>Observations</th></tr></thead>
@@ -319,7 +319,7 @@
           <div class="entete-section" style="padding:1rem">
             <div><h3 id="titre-detail-comptabilite">Détail des paiements</h3>
               <p id="resume-detail-comptabilite" class="texte-secondaire"></p></div>
-            <button type="button" id="bouton-toute-periode-comptabilite" data-action="voir-mois-comptabilite" data-mois="" hidden>Afficher toute la période</button>
+            <button type="button" id="bouton-toute-periode-comptabilite" data-action="voir-mois-comptabilite" data-mois="" hidden>Fermer le détail du mois</button>
           </div>
           <div class="tableau-responsive">
             <table id="tableau-comptabilite">

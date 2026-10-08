@@ -984,6 +984,27 @@ function libelleMois(mois) {
     .format(new Date(Date.UTC(annee, numero - 1, 1)));
 }
 
+// Le détail s'ouvre sous le mois cliqué ; sans mois choisi, il liste toute la période sous le tableau.
+function placerDetailComptabilite() {
+  const elements = [$('#carte-detail-comptabilite'), $('#pagination-comptabilite')];
+  const ancienne = $('#ligne-detail-mois');
+  const ligneMois = etat.moisComptabilite
+    ? $(`#corps-comptabilite-mois tr[data-mois="${etat.moisComptabilite}"]`) : null;
+  if (ligneMois) {
+    const ligne = document.createElement('tr');
+    const cellule = document.createElement('td');
+    cellule.colSpan = 5;
+    cellule.append(...elements);
+    ligne.append(cellule);
+    ligneMois.after(ligne);
+    if (ancienne) ancienne.remove();
+    ligne.id = 'ligne-detail-mois';
+  } else {
+    $('#carte-comptabilite-mois').after(...elements);
+    if (ancienne) ancienne.remove();
+  }
+}
+
 async function chargerPaiementsComptabilite() {
   const resultat = await api(`/api/superadmin/comptabilite/paiements?${parametres({
     ...periodeDetailComptabilite(), page: etat.pages.comptabilite, limite: 50,
@@ -1016,6 +1037,7 @@ async function chargerPaiementsComptabilite() {
     </div></td></tr>`).join('');
   $('#etat-vide-comptabilite').hidden = resultat.donnees.length > 0;
   afficherPagination('comptabilite', resultat.pagination);
+  placerDetailComptabilite();
 }
 
 // Après la modification ou la suppression d'un paiement : totaux recalculés sans le cache.
@@ -1043,6 +1065,8 @@ async function chargerComptabilite(sansCache = false) {
   ];
   $('#stats-comptabilite').innerHTML = statistiques.map(([libelle, valeur, alerte]) =>
     `<div class="carte stat${alerte ? ' alerte' : ''}"><div class="valeur">${echapper(valeur)}</div><div class="libelle">${libelle}</div></div>`).join('');
+  // Le détail est sorti du tableau avant que ses lignes soient réécrites.
+  $('#carte-comptabilite-mois').after($('#carte-detail-comptabilite'), $('#pagination-comptabilite'));
   $('#corps-comptabilite-mois').innerHTML = donnees.par_mois.map((ligne) => `<tr data-action="voir-mois-comptabilite"
     data-mois="${echapper(ligne.mois)}" title="Voir les paiements de ${echapper(libelleMois(ligne.mois))}">
     <td>${echapper(libelleMois(ligne.mois))}</td><td>${echapper(ligne.nb_paiements)}</td>
@@ -1304,10 +1328,12 @@ async function actionDeleguee(event) {
         afficherSucces('Paiement supprimé.', $('#vue-fiche-contrat'));
       }
     } else if (action === 'voir-mois-comptabilite') {
-      etat.moisComptabilite = bouton.dataset.mois || null;
+      // Un second clic sur le même mois referme son détail.
+      const mois = bouton.dataset.mois || null;
+      etat.moisComptabilite = mois === etat.moisComptabilite ? null : mois;
       etat.pages.comptabilite = 1;
       await chargerPaiementsComptabilite();
-      if (etat.moisComptabilite) $('#carte-detail-comptabilite').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (etat.moisComptabilite) $('#ligne-detail-mois').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } else if (action === 'modifier-paiement-comptabilite') {
       const paiement = etat.paiementsComptabilite.find((ligne) => String(ligne.id) === String(id));
       if (!paiement) throw new Error('Paiement introuvable. Rechargez la page.');
