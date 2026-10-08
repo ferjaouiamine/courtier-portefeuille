@@ -199,7 +199,8 @@ routeur.get('/comptabilite', async (req, res) => {
   try {
     const { du, au } = lirePeriode(req.query);
     const cle = `${req.utilisateur.organisationId}|${du}|${au}`;
-    const enCache = cacheComptabilite.get(cle);
+    // « frais=1 » force le recalcul juste après la modification d'un paiement.
+    const enCache = req.query.frais ? null : cacheComptabilite.get(cle);
     if (enCache && Date.now() - enCache.le < DUREE_CACHE_MS) return res.json(enCache.donnees);
 
     const resultat = await requete(
@@ -248,8 +249,9 @@ routeur.get('/comptabilite/paiements', async (req, res) => {
     const { du, au } = lirePeriode(req.query);
     const { page, limite, offset } = lirePagination(req);
     const resultat = await requete(
-      `select p.id, p.date_paiement, p.montant, p.mode_paiement, p.feuille_caisse,
-              p.date_feuille_caisse, p.com_nette, c.id as contrat_id, c.numero_contrat,
+      `select p.id, p.echeance_id, p.date_paiement, p.montant, p.mode_paiement, p.reference,
+              p.remarque, p.feuille_caisse, p.date_feuille_caisse, p.com_nette, p.com_nette_saisie,
+              c.id as contrat_id, c.numero_contrat,
               cl.nom as client_nom, cp.nom as compagnie_nom, u.nom as saisi_par_nom,
               count(*) over() as total_elements
        ${PAIEMENTS}

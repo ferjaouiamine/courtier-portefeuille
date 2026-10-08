@@ -305,14 +305,29 @@
         <div class="grille-stats" id="stats-comptabilite"></div>
         <div class="carte">
           <h3>Par mois</h3>
+          <p class="texte-secondaire">Cliquez sur un mois pour voir, modifier ou supprimer ses paiements.</p>
           <div class="tableau-responsive">
-            <table>
+            <table id="tableau-comptabilite-mois">
               <thead><tr><th>Mois</th><th>Paiements</th><th>Encaissé</th><th>Commission nette</th></tr></thead>
               <tbody id="corps-comptabilite-mois"></tbody>
             </table>
           </div>
           <p id="etat-vide-comptabilite-mois" class="etat-vide" hidden>Aucun encaissement sur cette période.</p>
         </div>
+        <div class="carte" style="padding:0" id="carte-detail-comptabilite">
+          <div class="entete-section" style="padding:1rem">
+            <h3 id="titre-detail-comptabilite">Détail des paiements</h3>
+            <button type="button" id="bouton-toute-periode-comptabilite" data-action="voir-mois-comptabilite" data-mois="" hidden>Afficher toute la période</button>
+          </div>
+          <div class="tableau-responsive">
+            <table id="tableau-comptabilite">
+              <thead><tr><th>Date</th><th>Client</th><th>Contrat</th><th>Compagnie</th><th>Montant</th><th>Feuille de caisse</th><th>Commission nette</th><th>Mode</th><th>Saisi par</th><th></th></tr></thead>
+              <tbody id="corps-tableau-comptabilite"></tbody>
+            </table>
+          </div>
+          <p id="etat-vide-comptabilite" class="etat-vide" hidden>Aucun encaissement sur cette période.</p>
+        </div>
+        <div id="pagination-comptabilite" class="pagination"></div>
         <div class="grille-repartition">
           <div class="carte">
             <h3>Commission nette par compagnie</h3>
@@ -327,16 +342,6 @@
           <h3>Commission nette par utilisateur</h3>
           <div id="comptabilite-utilisateur"></div>
         </div>
-        <div class="carte" style="padding:0">
-          <div class="tableau-responsive">
-            <table>
-              <thead><tr><th>Date</th><th>Client</th><th>Contrat</th><th>Compagnie</th><th>Montant</th><th>Feuille de caisse</th><th>Commission nette</th><th>Saisi par</th></tr></thead>
-              <tbody id="corps-tableau-comptabilite"></tbody>
-            </table>
-          </div>
-          <p id="etat-vide-comptabilite" class="etat-vide" hidden>Aucun encaissement sur cette période.</p>
-        </div>
-        <div id="pagination-comptabilite" class="pagination"></div>
         <div class="carte" style="padding:0">
           <div class="entete-section" style="padding:1rem">
             <h3>Utilisateurs</h3>

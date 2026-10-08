@@ -16,6 +16,8 @@ const etat = {
   echeanciersCompletes: false,
   edition: {},
   utilisateurs: [],
+  paiementsComptabilite: [],
+  moisComptabilite: null,
   pages: { echeances: 1, contrats: 1, clients: 1, journal: 1, comptabilite: 1 },
 };
 
@@ -953,22 +955,62 @@ function periodeComptabilite() {
   return { du: $('#filtre-comptabilite-du').value, au: $('#filtre-comptabilite-au').value };
 }
 
+// Période du détail : le mois cliqué, borné par la période choisie en haut de page.
+function periodeDetailComptabilite() {
+  const periode = periodeComptabilite();
+  const mois = etat.moisComptabilite;
+  if (!mois) return periode;
+  const [annee, numero] = mois.split('-').map(Number);
+  const debut = `${mois}-01`;
+  const fin = `${mois}-${String(new Date(Date.UTC(annee, numero, 0)).getUTCDate()).padStart(2, '0')}`;
+  return {
+    du: periode.du && periode.du > debut ? periode.du : debut,
+    au: periode.au && periode.au < fin ? periode.au : fin,
+  };
+}
+
+function libelleMois(mois) {
+  const [annee, numero] = mois.split('-').map(Number);
+  return new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(annee, numero - 1, 1)));
+}
+
 async function chargerPaiementsComptabilite() {
   const resultat = await api(`/api/superadmin/comptabilite/paiements?${parametres({
-    ...periodeComptabilite(), page: etat.pages.comptabilite, limite: 50,
+    ...periodeDetailComptabilite(), page: etat.pages.comptabilite, limite: 50,
   })}`);
-  $('#corps-tableau-comptabilite').innerHTML = resultat.donnees.map((ligne) => `<tr data-contrat-id="${echapper(ligne.contrat_id)}">
+  etat.paiementsComptabilite = resultat.donnees;
+  const mois = etat.moisComptabilite;
+  $('#titre-detail-comptabilite').textContent = mois
+    ? `Paiements de ${libelleMois(mois)}` : 'Détail des paiements de la période';
+  $('#bouton-toute-periode-comptabilite').hidden = !mois;
+  $$('#corps-comptabilite-mois tr').forEach((ligne) => ligne.classList.toggle('actif', ligne.dataset.mois === mois));
+  $('#corps-tableau-comptabilite').innerHTML = resultat.donnees.map((ligne) => `<tr>
     <td>${formaterDate(ligne.date_paiement)}</td><td>${echapper(ligne.client_nom)}</td>
-    <td>${echapper(ligne.numero_contrat)}</td><td>${echapper(ligne.compagnie_nom)}</td>
+    <td><button type="button" class="discret" data-action="ouvrir-contrat" data-id="${echapper(ligne.contrat_id)}">${echapper(ligne.numero_contrat)}</button></td>
+    <td>${echapper(ligne.compagnie_nom)}</td>
     <td>${formaterMontant(ligne.montant)}</td><td>${etiquetteFeuilleCaisse(ligne.feuille_caisse)}</td>
-    <td class="commission-nette">${ligne.feuille_caisse ? formaterMontant(ligne.com_nette) : ''}</td>
-    <td>${echapper(ligne.saisi_par_nom || '—')}</td></tr>`).join('');
+    <td class="commission-nette">${ligne.feuille_caisse ? echapper(ligne.com_nette_saisie || formaterMontant(ligne.com_nette)) : ''}</td>
+    <td>${echapper(libelleCode(ligne.mode_paiement))}</td>
+    <td>${echapper(ligne.saisi_par_nom || '—')}</td>
+    <td><div class="actions-ligne"${peutEcrire() ? '' : ' hidden'}>
+      <button type="button" data-action="modifier-paiement-comptabilite" data-id="${echapper(ligne.id)}">Modifier</button>
+      <button type="button" class="danger" data-action="supprimer-paiement-comptabilite" data-id="${echapper(ligne.id)}">Supprimer</button>
+    </div></td></tr>`).join('');
   $('#etat-vide-comptabilite').hidden = resultat.donnees.length > 0;
   afficherPagination('comptabilite', resultat.pagination);
 }
 
-async function chargerComptabilite() {
-  const donnees = await api(`/api/superadmin/comptabilite?${parametres(periodeComptabilite())}`);
+// Après la modification ou la suppression d'un paiement : totaux recalculés sans le cache.
+async function rafraichirComptabilite() {
+  await chargerComptabilite(true);
+  await chargerPaiementsComptabilite();
+}
+
+async function chargerComptabilite(sansCache = false) {
+  const donnees = await api(`/api/superadmin/comptabilite?${parametres({
+    ...periodeComptabilite(), frais: sansCache ? 1 : '',
+  })}`);
   $('#filtre-comptabilite-du').value = donnees.du;
   $('#filtre-comptabilite-au').value = donnees.au;
   const totaux = donnees.totaux;
@@ -981,8 +1023,9 @@ async function chargerComptabilite() {
   ];
   $('#stats-comptabilite').innerHTML = statistiques.map(([libelle, valeur, alerte]) =>
     `<div class="carte stat${alerte ? ' alerte' : ''}"><div class="valeur">${echapper(valeur)}</div><div class="libelle">${libelle}</div></div>`).join('');
-  $('#corps-comptabilite-mois').innerHTML = donnees.par_mois.map((ligne) => `<tr>
-    <td>${echapper(ligne.mois)}</td><td>${echapper(ligne.nb_paiements)}</td>
+  $('#corps-comptabilite-mois').innerHTML = donnees.par_mois.map((ligne) => `<tr data-action="voir-mois-comptabilite"
+    data-mois="${echapper(ligne.mois)}" title="Voir les paiements de ${echapper(libelleMois(ligne.mois))}">
+    <td>${echapper(libelleMois(ligne.mois))}</td><td>${echapper(ligne.nb_paiements)}</td>
     <td>${formaterMontant(ligne.encaisse)}</td>
     <td class="commission-nette">${formaterMontant(ligne.commission_nette)}</td></tr>`).join('');
   $('#etat-vide-comptabilite-mois').hidden = donnees.par_mois.length > 0;
@@ -1009,6 +1052,7 @@ async function chargerUtilisateurs() {
 
 async function chargerSuperAdmin() {
   etat.pages.comptabilite = 1;
+  etat.moisComptabilite = null;
   // La comptabilité fixe d'abord la période par défaut, reprise par le détail des paiements.
   await Promise.all([chargerComptabilite().then(chargerPaiementsComptabilite), chargerUtilisateurs()]);
 }
@@ -1226,8 +1270,29 @@ async function actionDeleguee(event) {
         && window.confirm('Supprimer ce paiement ? Le statut de l’échéance sera recalculé.')) {
       await api(`/api/echeances/${etat.echeanceId}/paiements/${etat.edition.paiement}`, { method: 'DELETE' });
       $('#modale-encaissement').close();
-      await ouvrirFicheContrat(etat.contratId);
-      afficherSucces('Paiement supprimé.', $('#vue-fiche-contrat'));
+      if (etat.vue === 'superadmin') {
+        await rafraichirComptabilite();
+        afficherSucces('Paiement supprimé.', $('#vue-superadmin'));
+      } else {
+        await ouvrirFicheContrat(etat.contratId);
+        afficherSucces('Paiement supprimé.', $('#vue-fiche-contrat'));
+      }
+    } else if (action === 'voir-mois-comptabilite') {
+      etat.moisComptabilite = bouton.dataset.mois || null;
+      etat.pages.comptabilite = 1;
+      await chargerPaiementsComptabilite();
+      if (etat.moisComptabilite) $('#carte-detail-comptabilite').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (action === 'modifier-paiement-comptabilite') {
+      const paiement = etat.paiementsComptabilite.find((ligne) => String(ligne.id) === String(id));
+      if (!paiement) throw new Error('Paiement introuvable. Rechargez la page.');
+      ouvrirModalePaiement({ paiement });
+    } else if (action === 'supprimer-paiement-comptabilite'
+        && window.confirm('Supprimer ce paiement ? Le statut de l’échéance sera recalculé.')) {
+      const paiement = etat.paiementsComptabilite.find((ligne) => String(ligne.id) === String(id));
+      if (!paiement) throw new Error('Paiement introuvable. Rechargez la page.');
+      await api(`/api/echeances/${paiement.echeance_id}/paiements/${paiement.id}`, { method: 'DELETE' });
+      await rafraichirComptabilite();
+      afficherSucces('Paiement supprimé.', $('#vue-superadmin'));
     } else if (action === 'supprimer-echeance'
         && window.confirm('Supprimer cette échéance ? Cette action sera enregistrée dans le journal.')) {
       await api(`/api/echeances/${etat.edition.echeance}`, { method: 'DELETE' });
@@ -1405,6 +1470,11 @@ function brancherFormulaires() {
         }) }
       );
       $('#modale-encaissement').close();
+      if (paiementId && etat.vue === 'superadmin') {
+        await rafraichirComptabilite();
+        afficherSucces('Paiement modifié.', $('#vue-superadmin'));
+        return;
+      }
       if (paiementId) {
         await ouvrirFicheContrat(etat.contratId);
         afficherSucces('Paiement modifié.', $('#vue-fiche-contrat'));
@@ -1584,6 +1654,7 @@ function brancherEvenements() {
   $('#contrat-prime').addEventListener('input', actualiserResumePrimeAvenant);
   ['#filtre-comptabilite-du', '#filtre-comptabilite-au'].forEach((id) => $(id).addEventListener('change', async () => {
     etat.pages.comptabilite = 1;
+    etat.moisComptabilite = null;
     try {
       await chargerComptabilite();
       await chargerPaiementsComptabilite();
