@@ -1043,9 +1043,10 @@ async function chargerPaiementsComptabilite() {
   $('#bouton-toute-periode-comptabilite').hidden = !mois && !filtre;
   $$('#stats-comptabilite .stat').forEach((carte) => carte.classList.toggle('actif', Boolean(filtre) && carte.dataset.filtre === filtre));
   $$('#corps-comptabilite-mois tr').forEach((ligne) => ligne.classList.toggle('actif', ligne.dataset.mois === mois));
-  $('#corps-tableau-comptabilite').innerHTML = resultat.donnees.map((ligne) => `<tr>
+  // Un clic sur la ligne ouvre la fiche du contrat ; les boutons gardent leur propre action.
+  $('#corps-tableau-comptabilite').innerHTML = resultat.donnees.map((ligne) => `<tr data-contrat-id="${echapper(ligne.contrat_id)}" title="Ouvrir le contrat ${echapper(ligne.numero_contrat)}">
     <td>${formaterDate(ligne.date_paiement)}</td><td>${echapper(ligne.client_nom)}</td>
-    <td><button type="button" class="discret" data-action="ouvrir-contrat" data-id="${echapper(ligne.contrat_id)}">${echapper(ligne.numero_contrat)}</button></td>
+    <td><span class="lien-contrat">${echapper(ligne.numero_contrat)}</span></td>
     <td>${echapper(ligne.compagnie_nom)}</td>
     <td>${formaterMontant(ligne.montant)}</td><td>${etiquetteFeuilleCaisse(ligne.feuille_caisse)}</td>
     <td class="commission-nette">${ligne.feuille_caisse ? echapper(ligne.com_nette_saisie || formaterMontant(ligne.com_nette)) : ''}</td>
