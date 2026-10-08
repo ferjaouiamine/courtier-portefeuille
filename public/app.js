@@ -774,6 +774,8 @@ async function ouvrirFicheContrat(id) {
     if (modification.champ === 'prime_totale') return formaterMontant(valeur);
     return formaterValeurAudit(valeur);
   };
+  // La carte « Avenants » n'apparaît que si le contrat a au moins un avenant.
+  const aDesAvenants = (contrat.avenants || []).some((version) => version.numero_version > 1);
   const versions = (contrat.avenants || []).map((version, index) => {
     const modifications = (version.modifications || []).map((modification) => `<li>
       <strong>${echapper(modification.libelle || modification.champ)} :</strong>
@@ -840,7 +842,7 @@ async function ouvrirFicheContrat(id) {
       ? `<div class="tableau-responsive"><table id="tableau-echeancier-contrat"><thead><tr><th>N°</th><th>Date</th><th>Montant</th><th>Statut</th></tr></thead><tbody>${echeances}</tbody></table></div>`
       : '<p class="etat-vide">Aucune échéance pour ce contrat.</p>'}</div>
     <div class="carte"><h3>Paiements</h3>${paiements ? `<div class="tableau-responsive"><table id="tableau-paiements-contrat"><thead><tr><th>Date du paiement</th><th>Montant</th><th>Feuille de caisse</th><th>Date de la feuille</th><th>Commission nette</th><th>Mode</th><th>Référence</th><th>Remarque</th></tr></thead><tbody>${paiements}</tbody></table></div>` : '<p class="etat-vide">Aucun paiement.</p>'}</div>
-    <div class="carte"><h3>Avenants</h3><div class="liste-versions-contrat">${versions || '<p class="etat-vide">Aucune version disponible.</p>'}</div></div>
+    ${aDesAvenants ? `<div class="carte"><h3>Avenants</h3><div class="liste-versions-contrat">${versions}</div></div>` : ''}
     ${voitHistorique() ? `<div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>` : ''}`;
   await changerVue('fiche-contrat');
 }
