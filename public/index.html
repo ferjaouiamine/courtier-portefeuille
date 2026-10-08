@@ -308,20 +308,22 @@
           <p class="texte-secondaire">Cliquez sur un mois pour voir, modifier ou supprimer ses paiements.</p>
           <div class="tableau-responsive">
             <table id="tableau-comptabilite-mois">
-              <thead><tr><th>Mois</th><th>Paiements</th><th>Encaissé</th><th>Commission nette</th></tr></thead>
+              <thead><tr><th>Mois</th><th>Nombre de paiements</th><th>Encaissé</th><th>Commission nette</th><th>Observations</th></tr></thead>
               <tbody id="corps-comptabilite-mois"></tbody>
+              <tfoot id="pied-comptabilite-mois"></tfoot>
             </table>
           </div>
           <p id="etat-vide-comptabilite-mois" class="etat-vide" hidden>Aucun encaissement sur cette période.</p>
         </div>
         <div class="carte" style="padding:0" id="carte-detail-comptabilite">
           <div class="entete-section" style="padding:1rem">
-            <h3 id="titre-detail-comptabilite">Détail des paiements</h3>
+            <div><h3 id="titre-detail-comptabilite">Détail des paiements</h3>
+              <p id="resume-detail-comptabilite" class="texte-secondaire"></p></div>
             <button type="button" id="bouton-toute-periode-comptabilite" data-action="voir-mois-comptabilite" data-mois="" hidden>Afficher toute la période</button>
           </div>
           <div class="tableau-responsive">
             <table id="tableau-comptabilite">
-              <thead><tr><th>Date</th><th>Client</th><th>Contrat</th><th>Compagnie</th><th>Montant</th><th>Feuille de caisse</th><th>Commission nette</th><th>Mode</th><th>Saisi par</th><th></th></tr></thead>
+              <thead><tr><th>Date</th><th>Client</th><th>Contrat</th><th>Compagnie</th><th>Montant</th><th>Feuille de caisse</th><th>Commission nette</th><th>Remarque</th><th>Mode</th><th>Saisi par</th><th></th></tr></thead>
               <tbody id="corps-tableau-comptabilite"></tbody>
             </table>
           </div>

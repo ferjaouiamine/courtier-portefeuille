@@ -17,6 +17,7 @@ const etat = {
   edition: {},
   utilisateurs: [],
   paiementsComptabilite: [],
+  comptabilite: null,
   moisComptabilite: null,
   pages: { echeances: 1, contrats: 1, clients: 1, journal: 1, comptabilite: 1 },
 };
@@ -969,6 +970,14 @@ function periodeDetailComptabilite() {
   };
 }
 
+function controlesMois(ligne) {
+  const controles = [];
+  if (Number(ligne.nb_sans_feuille) > 0) controles.push(`${ligne.nb_sans_feuille} sans feuille de caisse`);
+  if (Number(ligne.nb_commission_lot) > 0) controles.push(`${ligne.nb_commission_lot} commission(s) regroupée(s) sur un autre dossier`);
+  if (Number(ligne.nb_commission_nulle) > 0) controles.push(`${ligne.nb_commission_nulle} commission(s) à 0 sans remarque`);
+  return controles.join(' · ') || '—';
+}
+
 function libelleMois(mois) {
   const [annee, numero] = mois.split('-').map(Number);
   return new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
@@ -984,6 +993,13 @@ async function chargerPaiementsComptabilite() {
   $('#titre-detail-comptabilite').textContent = mois
     ? `Paiements de ${libelleMois(mois)}` : 'Détail des paiements de la période';
   $('#bouton-toute-periode-comptabilite').hidden = !mois;
+  // Rappel des totaux attendus, pour contrôler le détail ligne à ligne.
+  const reference = mois
+    ? (etat.comptabilite?.par_mois || []).find((ligne) => ligne.mois === mois)
+    : etat.comptabilite?.totaux;
+  $('#resume-detail-comptabilite').textContent = reference
+    ? `${reference.nb_paiements} paiement(s) · ${formaterMontant(reference.encaisse)} encaissés · ${formaterMontant(reference.commission_nette)} de commission nette`
+    : '';
   $$('#corps-comptabilite-mois tr').forEach((ligne) => ligne.classList.toggle('actif', ligne.dataset.mois === mois));
   $('#corps-tableau-comptabilite').innerHTML = resultat.donnees.map((ligne) => `<tr>
     <td>${formaterDate(ligne.date_paiement)}</td><td>${echapper(ligne.client_nom)}</td>
@@ -991,6 +1007,7 @@ async function chargerPaiementsComptabilite() {
     <td>${echapper(ligne.compagnie_nom)}</td>
     <td>${formaterMontant(ligne.montant)}</td><td>${etiquetteFeuilleCaisse(ligne.feuille_caisse)}</td>
     <td class="commission-nette">${ligne.feuille_caisse ? echapper(ligne.com_nette_saisie || formaterMontant(ligne.com_nette)) : ''}</td>
+    <td><span class="remarque-contrat" title="${echapper(ligne.remarque || '')}">${echapper(ligne.remarque || '—')}</span></td>
     <td>${echapper(libelleCode(ligne.mode_paiement))}</td>
     <td>${echapper(ligne.saisi_par_nom || '—')}</td>
     <td><div class="actions-ligne"${peutEcrire() ? '' : ' hidden'}>
@@ -1011,14 +1028,17 @@ async function chargerComptabilite(sansCache = false) {
   const donnees = await api(`/api/superadmin/comptabilite?${parametres({
     ...periodeComptabilite(), frais: sansCache ? 1 : '',
   })}`);
+  etat.comptabilite = donnees;
   $('#filtre-comptabilite-du').value = donnees.du;
   $('#filtre-comptabilite-au').value = donnees.au;
   const totaux = donnees.totaux;
   const statistiques = [
     ['Commission nette', formaterMontant(totaux.commission_nette)],
     ['Primes encaissées', formaterMontant(totaux.encaisse)],
-    ['Paiements', totaux.nb_paiements],
+    ['Nombre de paiements', totaux.nb_paiements],
     ['Sans feuille de caisse', totaux.nb_sans_feuille, Number(totaux.nb_sans_feuille) > 0],
+    ['Commission regroupée sur un autre dossier', totaux.nb_commission_lot],
+    ['Commission à 0 sans remarque', totaux.nb_commission_nulle, Number(totaux.nb_commission_nulle) > 0],
     ['Encaissé sans commission saisie', formaterMontant(totaux.encaisse_sans_feuille)],
   ];
   $('#stats-comptabilite').innerHTML = statistiques.map(([libelle, valeur, alerte]) =>
@@ -1027,7 +1047,13 @@ async function chargerComptabilite(sansCache = false) {
     data-mois="${echapper(ligne.mois)}" title="Voir les paiements de ${echapper(libelleMois(ligne.mois))}">
     <td>${echapper(libelleMois(ligne.mois))}</td><td>${echapper(ligne.nb_paiements)}</td>
     <td>${formaterMontant(ligne.encaisse)}</td>
-    <td class="commission-nette">${formaterMontant(ligne.commission_nette)}</td></tr>`).join('');
+    <td class="commission-nette">${formaterMontant(ligne.commission_nette)}</td>
+    <td>${echapper(controlesMois(ligne))}</td></tr>`).join('');
+  // Le total est recalculé ici à partir des lignes : il doit égaler les cartes du haut.
+  const somme = (cle) => donnees.par_mois.reduce((cumul, ligne) => cumul + Math.round(Number(ligne[cle]) * 1000), 0) / 1000;
+  $('#pied-comptabilite-mois').innerHTML = donnees.par_mois.length ? `<tr><td>Total</td>
+    <td>${somme('nb_paiements')}</td><td>${formaterMontant(somme('encaisse'))}</td>
+    <td class="commission-nette">${formaterMontant(somme('commission_nette'))}</td><td></td></tr>` : '';
   $('#etat-vide-comptabilite-mois').hidden = donnees.par_mois.length > 0;
   $('#comptabilite-compagnie').innerHTML = repartitionHtml(donnees.par_compagnie, 'nom', 'commission_nette');
   $('#comptabilite-branche').innerHTML = repartitionHtml(donnees.par_branche, 'nom', 'commission_nette');

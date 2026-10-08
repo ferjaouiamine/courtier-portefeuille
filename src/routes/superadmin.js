@@ -179,6 +179,11 @@ routeur.post('/utilisateurs/:id/restaurer', async (req, res) => {
 // =====================================================================
 // Comptabilité
 //
+// Une commission est souvent versée par lot : elle est alors saisie sur un seul
+// dossier, et les autres dossiers du lot portent une commission à 0 avec une
+// remarque qui indique où la trouver. Seule une commission à 0 sans remarque
+// est donc signalée comme anomalie.
+//
 // Tous les totaux sont agrégés par PostgreSQL en une seule requête : le
 // serveur ne charge jamais les paiements en mémoire. Le résultat est gardé
 // une minute pour éviter de recalculer à chaque affichage.
@@ -206,7 +211,8 @@ routeur.get('/comptabilite', async (req, res) => {
     const resultat = await requete(
       `with base as materialized (
          select p.montant, p.feuille_caisse, coalesce(p.com_nette, 0) as com_nette,
-                p.date_paiement, p.saisi_par, c.compagnie_id, c.produit_id
+                p.date_paiement, p.saisi_par, c.compagnie_id, c.produit_id,
+                nullif(trim(p.remarque), '') is not null as a_remarque
          ${PAIEMENTS}
          where ${FILTRE_PERIODE}
        )
@@ -216,11 +222,16 @@ routeur.get('/comptabilite', async (req, res) => {
             'commission_nette', coalesce(sum(com_nette), 0),
             'nb_paiements', count(*),
             'nb_sans_feuille', count(*) filter (where not feuille_caisse),
+            'nb_commission_lot', count(*) filter (where feuille_caisse and com_nette = 0 and a_remarque),
+            'nb_commission_nulle', count(*) filter (where feuille_caisse and com_nette = 0 and not a_remarque),
             'encaisse_sans_feuille', coalesce(sum(montant) filter (where not feuille_caisse), 0)
           ) from base) as totaux,
          (select coalesce(jsonb_agg(x order by x.mois), '[]'::jsonb) from (
             select to_char(date_trunc('month', date_paiement), 'YYYY-MM') as mois,
-                   count(*) as nb_paiements, sum(montant) as encaisse, sum(com_nette) as commission_nette
+                   count(*) as nb_paiements, sum(montant) as encaisse, sum(com_nette) as commission_nette,
+                   count(*) filter (where not feuille_caisse) as nb_sans_feuille,
+                   count(*) filter (where feuille_caisse and com_nette = 0 and a_remarque) as nb_commission_lot,
+                   count(*) filter (where feuille_caisse and com_nette = 0 and not a_remarque) as nb_commission_nulle
             from base group by 1) x) as par_mois,
          (select coalesce(jsonb_agg(x order by x.commission_nette desc), '[]'::jsonb) from (
             select cp.nom, sum(b.montant) as encaisse, sum(b.com_nette) as commission_nette
