@@ -1081,8 +1081,10 @@ async function chargerComptabilite(sansCache = false) {
     ['Primes encaissées', formaterMontant(totaux.encaisse)],
     ['Nombre de paiements', totaux.nb_paiements],
     ['Sans feuille de caisse', totaux.nb_sans_feuille, Number(totaux.nb_sans_feuille) > 0, 'sans_feuille'],
-    ['Commission regroupée sur un autre dossier', totaux.nb_commission_lot, false, 'commission_lot'],
-    ['Commission à 0 sans remarque', totaux.nb_commission_nulle, Number(totaux.nb_commission_nulle) > 0, 'commission_nulle'],
+    ['Commission à 0 (regroupée sur un autre dossier)', totaux.nb_commission_lot, false, 'commission_lot'],
+    // Carte d'anomalie : affichée seulement s'il existe une commission à 0 que rien n'explique.
+    ...(Number(totaux.nb_commission_nulle) > 0
+      ? [['Commission à 0 sans remarque', totaux.nb_commission_nulle, true, 'commission_nulle']] : []),
     ['Encaissé sans commission saisie', formaterMontant(totaux.encaisse_sans_feuille), false, 'sans_feuille'],
   ];
   // Une carte avec filtre est cliquable : elle affiche les paiements concernés.
