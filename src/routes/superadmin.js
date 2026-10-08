@@ -254,10 +254,18 @@ routeur.get('/comptabilite', async (req, res) => {
   }
 });
 
+// Filtres du détail, alignés sur les cartes du tableau de bord.
+const FILTRES_PAIEMENTS = {
+  sans_feuille: 'not p.feuille_caisse',
+  commission_lot: "p.feuille_caisse and p.com_nette = 0 and nullif(trim(p.remarque), '') is not null",
+  commission_nulle: "p.feuille_caisse and p.com_nette = 0 and nullif(trim(p.remarque), '') is null",
+};
+
 // Détail paginé des encaissements de la période (50 lignes par page).
 routeur.get('/comptabilite/paiements', async (req, res) => {
   try {
     const { du, au } = lirePeriode(req.query);
+    const filtre = FILTRES_PAIEMENTS[req.query.filtre];
     const { page, limite, offset } = lirePagination(req);
     const resultat = await requete(
       `select p.id, p.echeance_id, p.date_paiement, p.montant, p.mode_paiement, p.reference,
@@ -268,7 +276,7 @@ routeur.get('/comptabilite/paiements', async (req, res) => {
        ${PAIEMENTS}
        join compagnies cp on cp.id = c.compagnie_id
        left join utilisateurs u on u.id = p.saisi_par
-       where ${FILTRE_PERIODE}
+       where ${FILTRE_PERIODE}${filtre ? ` and ${filtre}` : ''}
        order by p.date_paiement desc, p.cree_le desc
        limit $3 offset $4`,
       [du, au, limite, offset]

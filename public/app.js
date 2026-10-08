@@ -19,6 +19,7 @@ const etat = {
   paiementsComptabilite: [],
   comptabilite: null,
   moisComptabilite: null,
+  filtreComptabilite: null,
   pages: { echeances: 1, contrats: 1, clients: 1, journal: 1, comptabilite: 1 },
 };
 
@@ -1007,22 +1008,40 @@ function placerDetailComptabilite() {
   }
 }
 
+// Cartes cliquables du tableau de bord comptable : chacune filtre le détail des paiements.
+const FILTRES_COMPTABILITE = {
+  sans_feuille: 'Encaissements sans commission nette (sans feuille de caisse)',
+  commission_lot: 'Paiements dont la commission est regroupée sur un autre dossier',
+  commission_nulle: 'Paiements avec une commission à 0 sans remarque',
+};
+
 async function chargerPaiementsComptabilite() {
+  const filtre = etat.filtreComptabilite;
   const resultat = await api(`/api/superadmin/comptabilite/paiements?${parametres({
-    ...periodeDetailComptabilite(), page: etat.pages.comptabilite, limite: 50,
+    ...periodeDetailComptabilite(), filtre, page: etat.pages.comptabilite, limite: 50,
   })}`);
   etat.paiementsComptabilite = resultat.donnees;
   const mois = etat.moisComptabilite;
-  $('#titre-detail-comptabilite').textContent = mois
-    ? `Paiements de ${libelleMois(mois)}` : 'Détail des paiements de la période';
-  $('#bouton-toute-periode-comptabilite').hidden = !mois;
-  // Rappel des totaux attendus, pour contrôler le détail ligne à ligne.
-  const reference = mois
-    ? (etat.comptabilite?.par_mois || []).find((ligne) => ligne.mois === mois)
-    : etat.comptabilite?.totaux;
-  $('#resume-detail-comptabilite').textContent = reference
-    ? `${reference.nb_paiements} paiement(s) · ${formaterMontant(reference.encaisse)} encaissés · ${formaterMontant(reference.commission_nette)} de commission nette`
-    : '';
+  const totaux = etat.comptabilite?.totaux;
+  let titre = 'Détail des paiements de la période';
+  let resume = '';
+  if (filtre) {
+    titre = FILTRES_COMPTABILITE[filtre];
+    resume = filtre === 'sans_feuille' && totaux
+      ? `${totaux.nb_sans_feuille} paiement(s) · ${formaterMontant(totaux.encaisse_sans_feuille)} encaissés sans commission saisie`
+      : `${resultat.pagination.total} paiement(s)`;
+  } else {
+    // Rappel des totaux attendus, pour contrôler le détail ligne à ligne.
+    const reference = mois ? (etat.comptabilite?.par_mois || []).find((ligne) => ligne.mois === mois) : totaux;
+    if (mois) titre = `Paiements de ${libelleMois(mois)}`;
+    resume = reference
+      ? `${reference.nb_paiements} paiement(s) · ${formaterMontant(reference.encaisse)} encaissés · ${formaterMontant(reference.commission_nette)} de commission nette`
+      : '';
+  }
+  $('#titre-detail-comptabilite').textContent = titre;
+  $('#resume-detail-comptabilite').textContent = resume;
+  $('#bouton-toute-periode-comptabilite').hidden = !mois && !filtre;
+  $$('#stats-comptabilite .stat').forEach((carte) => carte.classList.toggle('actif', Boolean(filtre) && carte.dataset.filtre === filtre));
   $$('#corps-comptabilite-mois tr').forEach((ligne) => ligne.classList.toggle('actif', ligne.dataset.mois === mois));
   $('#corps-tableau-comptabilite').innerHTML = resultat.donnees.map((ligne) => `<tr>
     <td>${formaterDate(ligne.date_paiement)}</td><td>${echapper(ligne.client_nom)}</td>
@@ -1060,13 +1079,14 @@ async function chargerComptabilite(sansCache = false) {
     ['Commission nette', formaterMontant(totaux.commission_nette)],
     ['Primes encaissées', formaterMontant(totaux.encaisse)],
     ['Nombre de paiements', totaux.nb_paiements],
-    ['Sans feuille de caisse', totaux.nb_sans_feuille, Number(totaux.nb_sans_feuille) > 0],
-    ['Commission regroupée sur un autre dossier', totaux.nb_commission_lot],
-    ['Commission à 0 sans remarque', totaux.nb_commission_nulle, Number(totaux.nb_commission_nulle) > 0],
-    ['Encaissé sans commission saisie', formaterMontant(totaux.encaisse_sans_feuille)],
+    ['Sans feuille de caisse', totaux.nb_sans_feuille, Number(totaux.nb_sans_feuille) > 0, 'sans_feuille'],
+    ['Commission regroupée sur un autre dossier', totaux.nb_commission_lot, false, 'commission_lot'],
+    ['Commission à 0 sans remarque', totaux.nb_commission_nulle, Number(totaux.nb_commission_nulle) > 0, 'commission_nulle'],
+    ['Encaissé sans commission saisie', formaterMontant(totaux.encaisse_sans_feuille), false, 'sans_feuille'],
   ];
-  $('#stats-comptabilite').innerHTML = statistiques.map(([libelle, valeur, alerte]) =>
-    `<div class="carte stat${alerte ? ' alerte' : ''}"><div class="valeur">${echapper(valeur)}</div><div class="libelle">${libelle}</div></div>`).join('');
+  // Une carte avec filtre est cliquable : elle affiche les paiements concernés.
+  $('#stats-comptabilite').innerHTML = statistiques.map(([libelle, valeur, alerte, filtre]) =>
+    `<div class="carte stat${alerte ? ' alerte' : ''}"${filtre ? ` data-action="filtrer-comptabilite" data-filtre="${filtre}" title="Voir les paiements concernés"` : ''}><div class="valeur">${echapper(valeur)}</div><div class="libelle">${libelle}</div></div>`).join('');
   // Le détail est sorti du tableau avant que ses lignes soient réécrites.
   $('#carte-comptabilite-mois').after($('#carte-detail-comptabilite'), $('#pagination-comptabilite'));
   $('#corps-comptabilite-mois').innerHTML = donnees.par_mois.map((ligne) => `<tr data-action="voir-mois-comptabilite"
@@ -1105,6 +1125,7 @@ async function chargerUtilisateurs() {
 async function chargerSuperAdmin() {
   etat.pages.comptabilite = 1;
   etat.moisComptabilite = null;
+  etat.filtreComptabilite = null;
   // La comptabilité fixe d'abord la période par défaut, reprise par le détail des paiements.
   await Promise.all([chargerComptabilite().then(chargerPaiementsComptabilite), chargerUtilisateurs()]);
 }
@@ -1335,9 +1356,18 @@ async function actionDeleguee(event) {
       // Un second clic sur le même mois referme son détail.
       const mois = bouton.dataset.mois || null;
       etat.moisComptabilite = mois === etat.moisComptabilite ? null : mois;
+      etat.filtreComptabilite = null;
       etat.pages.comptabilite = 1;
       await chargerPaiementsComptabilite();
       if (etat.moisComptabilite) $('#ligne-detail-mois').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else if (action === 'filtrer-comptabilite') {
+      // Un second clic sur la même carte retire le filtre.
+      const { filtre } = bouton.dataset;
+      etat.filtreComptabilite = filtre === etat.filtreComptabilite ? null : filtre;
+      etat.moisComptabilite = null;
+      etat.pages.comptabilite = 1;
+      await chargerPaiementsComptabilite();
+      if (etat.filtreComptabilite) $('#carte-detail-comptabilite').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } else if (action === 'modifier-paiement-comptabilite') {
       const paiement = etat.paiementsComptabilite.find((ligne) => String(ligne.id) === String(id));
       if (!paiement) throw new Error('Paiement introuvable. Rechargez la page.');
@@ -1713,6 +1743,7 @@ function brancherEvenements() {
   ['#filtre-comptabilite-du', '#filtre-comptabilite-au'].forEach((id) => $(id).addEventListener('change', async () => {
     etat.pages.comptabilite = 1;
     etat.moisComptabilite = null;
+  etat.filtreComptabilite = null;
     try {
       await chargerComptabilite();
       await chargerPaiementsComptabilite();
