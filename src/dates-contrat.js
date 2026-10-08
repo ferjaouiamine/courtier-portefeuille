@@ -56,4 +56,32 @@ function calculerDureeMoisEntreDates(dateEffet, dateFin) {
   return duree;
 }
 
-module.exports = { calculerDateFin, calculerDureeMoisEntreDates, validerDateFinFerme };
+// Un contrat à durée ferme (DF) a une date de fin saisie. Un contrat RTR se
+// renouvelle par tacite reconduction : il n'a pas de date de fin, seulement une
+// période (12 mois par défaut) qui borne son échéancier jusqu'au renouvellement.
+function calculerPeriodeContrat({ ferme, dateEffet, dateFin, dureeMois }) {
+  if (ferme) {
+    const fin = dateFin
+      ? validerDateFinFerme(dateEffet, dateFin)
+      : calculerDateFin(dateEffet, dureeMois ?? 12);
+    return { dateFin: fin, dureeMois: calculerDureeMoisEntreDates(dateEffet, fin) };
+  }
+  const duree = Number(dureeMois);
+  const periode = Number.isInteger(duree) && duree >= 1 && duree <= 1200 ? duree : 12;
+  parserDateIso(dateEffet);
+  return { dateFin: null, dureeMois: periode };
+}
+
+// Fin de la période en cours : la date de fin d'un DF, ou la prochaine date de
+// renouvellement d'un RTR (calculée, jamais enregistrée).
+function finDePeriode(contrat) {
+  return contrat.date_fin || calculerDateFin(contrat.date_effet, contrat.duree_mois);
+}
+
+module.exports = {
+  calculerDateFin,
+  calculerDureeMoisEntreDates,
+  calculerPeriodeContrat,
+  finDePeriode,
+  validerDateFinFerme,
+};

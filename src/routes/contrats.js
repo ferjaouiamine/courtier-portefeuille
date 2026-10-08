@@ -6,7 +6,7 @@ const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
 const { journaliser, resumerLigneAudit } = require('../audit');
 const stockage = require('../stockage');
-const { calculerDateFin, calculerDureeMoisEntreDates, validerDateFinFerme } = require('../dates-contrat');
+const { calculerDateFin, calculerPeriodeContrat } = require('../dates-contrat');
 const {
   normaliserDureeEtFractionnement,
   typeDureeDepuisFractionnement,
@@ -376,10 +376,9 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
       return res.status(400).json({ erreur: 'La remarque ne doit pas dépasser 2 000 caractères.' });
     }
     const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
-    const dateFinEnregistree = dateFin
-      ? validerDateFinFerme(dateEffet, dateFin)
-      : calculerDateFin(dateEffet, dureeMois ?? 12);
-    const dureeTechnique = calculerDureeMoisEntreDates(dateEffet, dateFinEnregistree);
+    const { dateFin: dateFinEnregistree, dureeMois: dureeTechnique } = calculerPeriodeContrat({
+      ferme: regles.typeDuree === 'ferme', dateEffet, dateFin, dureeMois,
+    });
 
     const contrat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const resultat = await client.query(
@@ -435,10 +434,9 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
       return res.status(400).json({ erreur: 'La remarque ne doit pas dépasser 2 000 caractères.' });
     }
     const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
-    const dateFinEnregistree = dateFin
-      ? validerDateFinFerme(dateEffet, dateFin)
-      : calculerDateFin(dateEffet, dureeMois ?? 12);
-    const dureeTechnique = calculerDureeMoisEntreDates(dateEffet, dateFinEnregistree);
+    const { dateFin: dateFinEnregistree, dureeMois: dureeTechnique } = calculerPeriodeContrat({
+      ferme: regles.typeDuree === 'ferme', dateEffet, dateFin, dureeMois,
+    });
 
     const contrat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const resultat = await client.query(
@@ -534,9 +532,17 @@ function construireVersionAvenant(contrat, precedente, saisie, statutParDefaut) 
   if (primeTotale < 0) {
     throw erreurAvenant('La prime totale après avenant ne peut pas être négative.');
   }
-  const dateFinEnregistree = saisie.dateFin
-    ? validerDateFinFerme(saisie.dateEffetAvenant, saisie.dateFin)
-    : calculerDateFin(saisie.dateEffetAvenant, saisie.dureeMois ?? 12);
+  const ferme = saisie.regles.typeDuree === 'ferme';
+  // Passage d'un DF à un RTR : la période repart sur 12 mois.
+  const periode = calculerPeriodeContrat({
+    ferme,
+    dateEffet: contrat.date_effet,
+    dateFin: saisie.dateFin,
+    dureeMois: ferme || precedente.fractionnement !== 'prime_unique' ? saisie.dureeMois : 12,
+  });
+  if (ferme && periode.dateFin <= saisie.dateEffetAvenant) {
+    throw erreurAvenant("La date de fin doit être postérieure à la date d'effet de l'avenant.");
+  }
   const version = {
     date_effet: saisie.dateEffetAvenant,
     souscripteur_id: saisie.souscripteurId || contrat.client_id,
@@ -546,8 +552,8 @@ function construireVersionAvenant(contrat, precedente, saisie, statutParDefaut) 
     produit_id: saisie.produitId,
     type_contrat: saisie.typeContrat || null,
     immatriculation: String(saisie.immatriculation || '').trim() || null,
-    date_fin_contrat: dateFinEnregistree,
-    duree_mois: Number(calculerDureeMoisEntreDates(contrat.date_effet, dateFinEnregistree)),
+    date_fin_contrat: periode.dateFin,
+    duree_mois: periode.dureeMois,
     fractionnement: saisie.regles.fractionnement,
     prime_totale: primeTotale,
     prime_avenant: saisie.primeAvenant,
@@ -825,7 +831,6 @@ routeur.post('/:id/renouveler', exigerRole('admin', 'agent'), async (req, res) =
         throw erreur;
       }
       const nouvelleDateEffet = calculerDateFin(contrat.date_effet, contrat.duree_mois);
-      const nouvelleDateFin = calculerDateFin(nouvelleDateEffet, contrat.duree_mois);
       const nouveau = await client.query(
         `insert into contrats (
            numero_contrat, client_id, souscripteur_id, societe_leasing_id, societe_leasing, payeur_id,
@@ -841,7 +846,7 @@ routeur.post('/:id/renouveler', exigerRole('admin', 'agent'), async (req, res) =
           contrat.numero_contrat, contrat.client_id, contrat.souscripteur_id,
           contrat.societe_leasing_id, contrat.societe_leasing, contrat.payeur_id,
           contrat.compagnie_id, contrat.produit_id, contrat.type_contrat, contrat.immatriculation,
-          nouvelleDateEffet, contrat.duree_mois, contrat.fractionnement, nouvelleDateFin,
+          nouvelleDateEffet, contrat.duree_mois, contrat.fractionnement, null,
           contrat.prime_totale, contrat.com_brute, contrat.taux_retenue,
           contrat.id, req.utilisateur.id,
         ]

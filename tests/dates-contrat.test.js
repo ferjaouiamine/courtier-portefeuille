@@ -37,3 +37,29 @@ test('la durée technique est calculée entre la date d’effet et la date de fi
   assert.equal(calculerDureeMoisEntreDates('2026-01-01', '2031-01-01'), 60);
   assert.equal(calculerDureeMoisEntreDates('2026-01-31', '2026-04-30'), 3);
 });
+
+test('un contrat RTR n a pas de date de fin et garde sa période de renouvellement', () => {
+  const { calculerPeriodeContrat, finDePeriode } = require('../src/dates-contrat');
+  assert.deepEqual(
+    calculerPeriodeContrat({ ferme: false, dateEffet: '2026-10-08', dateFin: '2030-01-01', dureeMois: undefined }),
+    { dateFin: null, dureeMois: 12 }
+  );
+  assert.deepEqual(
+    calculerPeriodeContrat({ ferme: false, dateEffet: '2026-10-08', dateFin: null, dureeMois: 120 }),
+    { dateFin: null, dureeMois: 120 }
+  );
+  assert.equal(finDePeriode({ date_effet: '2026-10-08', date_fin: null, duree_mois: 12 }), '2027-10-08');
+});
+
+test('un contrat à durée ferme garde sa date de fin saisie', () => {
+  const { calculerPeriodeContrat, finDePeriode } = require('../src/dates-contrat');
+  assert.deepEqual(
+    calculerPeriodeContrat({ ferme: true, dateEffet: '2026-10-08', dateFin: '2027-04-08', dureeMois: 12 }),
+    { dateFin: '2027-04-08', dureeMois: 6 }
+  );
+  assert.equal(finDePeriode({ date_effet: '2026-10-08', date_fin: '2027-04-08', duree_mois: 6 }), '2027-04-08');
+  assert.throws(
+    () => calculerPeriodeContrat({ ferme: true, dateEffet: '2026-10-08', dateFin: '2026-10-01' }),
+    /postérieure/
+  );
+});

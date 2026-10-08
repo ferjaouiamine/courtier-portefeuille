@@ -185,8 +185,9 @@ function appliquerReglesDureeContrat() {
   else if (fractionnement.value === 'prime_unique') fractionnement.value = 'annuel';
   $('#zone-contrat-fractionnement').hidden = dureeFerme;
   $('#zone-contrat-date-echeance').hidden = dureeFerme;
-  $('#zone-contrat-date-fin').hidden = false;
-  dateFin.required = true;
+  // Un contrat RTR se renouvelle par tacite reconduction : il n'a pas de date de fin à saisir.
+  $('#zone-contrat-date-fin').hidden = !dureeFerme;
+  dateFin.required = dureeFerme;
   actualiserContrainteDateFin();
   synchroniserSelectRecherchable(fractionnement);
   calculerDateEcheance();
@@ -730,7 +731,7 @@ async function chargerContrats() {
     <td>${echapper(ligne.numero_contrat)}</td><td>${echapper(ligne.client_nom)}</td>
     <td>${echapper(ligne.compagnie_nom)}</td><td>${echapper(ligne.produit_nom)}</td>
     <td>${formaterDate(ligne.date_effet)}</td><td>${typeDureeAvecInfobulle(ligne)}</td>
-    <td>${formaterDate(ligne.date_fin)}</td>
+    <td>${typeDureeContrat(ligne) === 'ferme' ? formaterDate(ligne.date_fin) : '—'}</td>
     <td>${etiquetteFeuilleCaisse(ligne.feuille_caisse)}</td>
     <td class="prime-contrat">${formaterMontantAligne(ligne.prime_totale)}</td>
     <td>DT</td>
@@ -750,7 +751,8 @@ async function ouvrirFicheContrat(id) {
   etat.remarqueContrat = contrat.remarque || '';
   etat.paiementsContrat = contrat.paiements;
   etat.echeancesContrat = contrat.echeances;
-  const dateFinContrat = `<div>Fin du contrat<div class="valeur">${formaterDate(contrat.date_fin)}</div></div>`;
+  const dateFinContrat = typeDureeContrat(contrat) === 'ferme'
+    ? `<div>Fin du contrat<div class="valeur">${formaterDate(contrat.date_fin)}</div></div>` : '';
   const commissionNette = contrat.feuille_caisse
     ? `<div>Commission nette<div class="valeur commission-nette">${echapper(contrat.com_nette_saisie || formaterMontant(contrat.com_nette))}</div></div>`
     : '';
@@ -1172,6 +1174,8 @@ async function ouvrirModaleContrat(contrat = null) {
     '#contrat-remarque': contrat?.remarque,
   };
   Object.entries(champs).forEach(([selecteur, valeur]) => { $(selecteur).value = valeur ?? ''; });
+  // Période d'un contrat RTR existant (12 mois par défaut), conservée pour ne pas toucher à son échéancier.
+  etat.edition.dureeRtr = contrat && typeDureeContrat(contrat) === 'rtr' ? Number(contrat.duree_mois) || 12 : 12;
   $('#contrat-paiement-mode').value = 'autre';
   $('#contrat-paiement-reference').value = '';
   $('#contrat-retour-feuille-oui').checked = Boolean(contrat?.retour_feuille_caisse);
@@ -1482,8 +1486,10 @@ function brancherFormulaires() {
         payeurId: $('#contrat-payeur').value || null,
         compagnieId: $('#contrat-compagnie').value, produitId: $('#contrat-produit').value,
         immatriculation: $('#contrat-immatriculation').value.trim(),
-        dateEffet: $('#contrat-date-effet').value, dureeMois: Number($('#contrat-duree').value),
-        dateFin: $('#contrat-date-fin').value,
+        dateEffet: $('#contrat-date-effet').value,
+        // Seul un contrat à durée ferme a une date de fin ; un RTR garde sa période de renouvellement.
+        dureeMois: $('#contrat-type-duree').value === 'ferme' ? Number($('#contrat-duree').value) : etat.edition.dureeRtr,
+        dateFin: $('#contrat-type-duree').value === 'ferme' ? $('#contrat-date-fin').value : null,
         typeDuree: $('#contrat-type-duree').value,
         fractionnement: $('#contrat-fractionnement').value,
         primeTotale: estAvenant ? null : Number($('#contrat-prime').value),

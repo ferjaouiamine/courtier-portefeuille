@@ -1,6 +1,6 @@
 'use strict';
 
-const { calculerDateFin } = require('./dates-contrat');
+const { calculerDateFin, finDePeriode } = require('./dates-contrat');
 const { moisDuFractionnement } = require('./regles-contrat');
 
 function calculerDateTerme(dateEffet, fractionnement, numeroTerme) {
@@ -78,7 +78,7 @@ async function synchroniserProchaineEcheance(client, contrat) {
   const numeros = calculerNumerosTermes(
     contrat.date_effet,
     contrat.fractionnement,
-    contrat.date_fin
+    finDePeriode(contrat)
   );
   const premierNumero = numeros.find((numero) => !numerosPayes.has(numero));
   const dates = numeros.map((numero) => calculerDateTerme(
@@ -147,7 +147,8 @@ async function completerTousLesEcheanciers(client) {
         1, greatest(0, ceil(c.duree_mois::numeric / c.mois)::integer)
       ) as serie(numero)
       where c.mois is not null
-        and (c.date_effet + make_interval(months => c.mois * serie.numero))::date <= c.date_fin
+        and (c.date_effet + make_interval(months => c.mois * serie.numero))::date
+            <= coalesce(c.date_fin, (c.date_effet + make_interval(months => c.duree_mois))::date)
     ), archives as (
       update echeances e set supprime_le = coalesce(e.supprime_le, now())
       where e.type_echeance = 'terme' and e.supprime_le is null

@@ -126,7 +126,7 @@ create table if not exists contrats (
   duree_mois        integer not null default 12 check (duree_mois between 1 and 1200),
   fractionnement    text not null check (fractionnement in
                       ('annuel', 'semestriel', 'trimestriel', 'prime_unique')),
-  date_fin          date not null,
+  date_fin          date,
   date_echeance     date,
   echeancier_personnalise boolean not null default false,
   prime_totale      numeric(12, 3) not null check (prime_totale >= 0),
@@ -200,7 +200,7 @@ create table if not exists avenants_contrats (
   produit_id             uuid not null references produits(id),
   type_contrat           text,
   immatriculation        text,
-  date_fin_contrat       date not null,
+  date_fin_contrat       date,
   duree_mois             integer not null check (duree_mois between 1 and 1200),
   fractionnement         text not null check (fractionnement in ('annuel', 'semestriel', 'trimestriel', 'prime_unique')),
   prime_totale           numeric(12, 3) not null check (prime_totale >= 0),
@@ -217,6 +217,9 @@ create table if not exists avenants_contrats (
   constraint ck_avenants_validite check (date_fin_validite is null or date_fin_validite >= date_effet),
   constraint ck_avenants_periode_contrat check (date_fin_contrat > date_effet)
 );
+-- Un contrat RTR est renouvelable : ni le contrat ni ses versions n'ont de date de fin.
+alter table contrats alter column date_fin drop not null;
+alter table avenants_contrats alter column date_fin_contrat drop not null;
 create index if not exists ix_avenants_contrat_effet
   on avenants_contrats (contrat_id, date_effet desc);
 create index if not exists ix_avenants_organisation_effet
@@ -297,11 +300,13 @@ alter table contrats add constraint ck_contrats_feuille_caisse_commission check 
   or (not feuille_caisse and com_nette is null)
 );
 
--- La date de fin est saisie pour une durée ferme et dérivée techniquement pour un contrat RTR.
+-- La date de fin n'existe que pour une durée ferme. Un contrat RTR se renouvelle
+-- par tacite reconduction : sa date de fin reste toujours vide, et son échéancier
+-- est borné par sa période (duree_mois) à partir de la date d'effet.
 create or replace function f_calcul_date_fin_contrat() returns trigger as $$
 begin
-  if new.fractionnement <> 'prime_unique' and new.date_fin is null then
-    new.date_fin := (new.date_effet + make_interval(months => new.duree_mois))::date;
+  if new.fractionnement <> 'prime_unique' then
+    new.date_fin := null;
   end if;
   return new;
 end;
@@ -311,6 +316,19 @@ drop trigger if exists trg_calcul_date_fin_contrat on contrats;
 create trigger trg_calcul_date_fin_contrat
 before insert or update of date_effet, duree_mois, fractionnement, date_fin on contrats
 for each row execute function f_calcul_date_fin_contrat();
+
+update contrats set date_fin = null
+where fractionnement <> 'prime_unique' and date_fin is not null;
+update avenants_contrats set date_fin_contrat = null
+where fractionnement <> 'prime_unique' and date_fin_contrat is not null;
+alter table contrats drop constraint if exists ck_contrats_date_fin_selon_duree;
+alter table contrats add constraint ck_contrats_date_fin_selon_duree check (
+  (fractionnement = 'prime_unique') = (date_fin is not null)
+);
+alter table avenants_contrats drop constraint if exists ck_avenants_date_fin_selon_duree;
+alter table avenants_contrats add constraint ck_avenants_date_fin_selon_duree check (
+  (fractionnement = 'prime_unique') = (date_fin_contrat is not null)
+);
 
 create or replace function f_calcul_date_echeance_contrat() returns trigger as $$
 begin
@@ -742,7 +760,8 @@ begin
 
   select coalesce(array_agg(numero order by numero), '{}'::integer[]) into v_numeros_cibles
   from generate_series(1, greatest(0, ceil(v.duree_mois::numeric / v_mois)::integer)) as termes(numero)
-  where (v.date_effet + make_interval(months => v_mois * numero))::date <= v.date_fin;
+  where (v.date_effet + make_interval(months => v_mois * numero))::date
+    <= coalesce(v.date_fin, (v.date_effet + make_interval(months => v.duree_mois))::date);
 
   update echeances set supprime_le = coalesce(supprime_le, now())
   where contrat_id = p_contrat_id and type_echeance = 'terme'
@@ -798,7 +817,8 @@ begin
     v.compagnie_id, v.produit_id, v.type_contrat, v.immatriculation,
     (v.date_effet + make_interval(months => v.duree_mois))::date,
     v.duree_mois, v.fractionnement,
-    (v.date_effet + make_interval(months => v.duree_mois * 2))::date,
+    case when v.fractionnement = 'prime_unique'
+      then (v.date_effet + make_interval(months => v.duree_mois * 2))::date end,
     null,
     v.prime_totale, false, null, v.com_brute, v.taux_retenue,
     'en_cours', p_contrat_id, p_utilisateur, p_utilisateur

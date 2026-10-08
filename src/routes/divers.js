@@ -495,7 +495,8 @@ routeur.get('/export/portefeuille.csv', async (req, res) => {
         echapperCsv(ligne.produit_nom),
         echapperCsv(ligne.statut),
         formaterDateCsv(ligne.date_effet),
-        formaterDateCsv(ligne.date_fin),
+        // Un contrat RTR est renouvelable : seule une durée ferme a une date de fin.
+        ligne.fractionnement === 'prime_unique' ? formaterDateCsv(ligne.date_fin) : '',
         echapperCsv(ligne.type_duree === 'ferme' ? 'DF' : 'RTR'),
         echapperCsv(ligne.feuille_caisse ? 'Oui' : 'Non'),
         formaterMontantCsv(ligne.prime_totale),
