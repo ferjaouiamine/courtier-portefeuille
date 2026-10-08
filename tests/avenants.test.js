@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { calculerModifications } = require('../src/avenants');
+const { calculerModifications, calculerPrimeTotale } = require('../src/avenants');
 
 test('un avenant conserve uniquement les champs réellement modifiés', () => {
   const avant = {
@@ -27,4 +27,10 @@ test('un avenant identique ne crée aucune différence', () => {
     retour_feuille_caisse: false,
   };
   assert.deepEqual(calculerModifications(version, { ...version, prime_totale: 900 }), []);
+});
+
+test("la prime totale est la prime précédente augmentée de la prime d'avenant", () => {
+  assert.equal(calculerPrimeTotale('900.000', 150.5), 1050.5);
+  assert.equal(calculerPrimeTotale('0.100', 0.2), 0.3);
+  assert.equal(calculerPrimeTotale('900.000', -100), 800);
 });

@@ -252,6 +252,7 @@
               <option value="">Tous</option>
               <option value="clients">Clients</option>
               <option value="contrats">Contrats</option>
+              <option value="avenants_contrats">Avenants</option>
               <option value="echeances">Échéances</option>
               <option value="paiements">Encaissements</option>
               <option value="relances">Relances</option>
@@ -404,8 +405,9 @@
         <label id="zone-contrat-date-echeance">Date d'échéance calculée
           <input type="date" id="contrat-date-echeance" readonly />
         </label>
-        <label>Prime totale (DT)
+        <label><span id="libelle-contrat-prime">Prime totale (DT)</span>
           <input type="number" step="0.001" min="0.001" id="contrat-prime" required />
+          <span id="resume-prime-avenant" class="texte-secondaire" hidden></span>
         </label>
         <fieldset class="groupe-feuille-caisse">
           <legend>Retour feuille de caisse</legend>

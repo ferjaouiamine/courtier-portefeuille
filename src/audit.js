@@ -10,6 +10,10 @@ const CHAMPS_VISIBLES = {
     'fractionnement', 'prime_totale', 'feuille_caisse', 'retour_feuille_caisse',
     'com_nette', 'com_nette_saisie', 'remarque', 'statut',
   ],
+  avenants_contrats: [
+    'numero_version', 'date_effet', 'prime_avenant', 'prime_totale', 'fractionnement',
+    'date_fin_contrat', 'immatriculation', 'remarque', 'statut',
+  ],
   echeances: ['type_echeance', 'numero_terme', 'date_echeance', 'montant_prime', 'statut'],
   paiements: [
     'montant', 'mode_paiement', 'reference', 'date_paiement',
@@ -39,6 +43,9 @@ const LIBELLES_CHAMPS = {
   date_fin: 'Date de fin du contrat',
   fractionnement: 'Fréquence de paiement',
   prime_totale: 'Prime totale',
+  prime_avenant: "Prime de l'avenant",
+  numero_version: 'Version',
+  date_fin_contrat: 'Date de fin du contrat',
   statut: 'Statut',
   type_echeance: "Type d'échéance",
   numero_terme: 'N° de terme',
@@ -70,6 +77,9 @@ function libelleElement(table, etat) {
   if (table === 'contrats') return etat.numero_contrat || 'Contrat';
   if (table === 'clients' || table === 'compagnies' || table === 'produits' || table === 'utilisateurs') {
     return etat.nom || etat.email || 'Élément';
+  }
+  if (table === 'avenants_contrats') {
+    return etat.numero_version ? `Avenant n° ${etat.numero_version - 1}` : 'Avenant';
   }
   if (table === 'echeances') return etat.date_echeance ? `Échéance du ${etat.date_echeance}` : 'Échéance';
   if (table === 'paiements') return etat.montant !== undefined ? `Encaissement de ${etat.montant} DT` : 'Encaissement';

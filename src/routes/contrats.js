@@ -14,7 +14,9 @@ const {
 const { enregistrerPaiementInitial, synchroniserProchaineEcheance } = require('../echeancier');
 const {
   appliquerAvenantsDus,
+  appliquerVersionCourante,
   calculerModifications,
+  calculerPrimeTotale,
   creerVersionInitiale,
 } = require('../avenants');
 
@@ -55,8 +57,6 @@ const TRIS_AUTORISES = {
 // Liste triable et filtrable du portefeuille.
 routeur.get('/', async (req, res) => {
   try {
-    await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
-      appliquerAvenantsDus(client, req.utilisateur.id));
     const { statut, compagnie_id: compagnieId, produit_id: produitId, recherche } = req.query;
     const tri = TRIS_AUTORISES[req.query.tri] || 'c.date_effet';
     const ordre = req.query.ordre === 'asc' ? 'asc' : 'desc';
@@ -85,7 +85,10 @@ routeur.get('/', async (req, res) => {
     }
 
     parametres.push(limite, offset);
-    const resultat = await requete(
+    // Une seule connexion pour appliquer les avenants arrivés à échéance puis lire la page.
+    const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
+      await appliquerAvenantsDus(client, req.utilisateur.id);
+      return client.query(
       `select c.id, c.numero_contrat, c.statut, c.date_effet, c.date_fin, c.duree_mois, c.fractionnement,
               case when c.fractionnement = 'prime_unique' then 'ferme' else 'rtr' end as type_duree,
               c.prime_totale,
@@ -113,8 +116,9 @@ routeur.get('/', async (req, res) => {
        where ${conditions.join(' and ')}
        order by ${tri} ${ordre}
        limit $${parametres.length - 1} offset $${parametres.length}`,
-      parametres
-    );
+        parametres
+      );
+    });
 
     res.json(reponsePaginee(resultat.rows, page, limite));
   } catch (erreur) {
@@ -122,104 +126,117 @@ routeur.get('/', async (req, res) => {
   }
 });
 
-// Fiche contrat : échéancier complet, paiements rattachés et historique des modifications.
+// Fiche contrat : échéancier complet, paiements rattachés et avenants.
+// Tout est lu sur une seule connexion pour limiter les allers-retours avec la base.
+// L'historique d'audit est réservé aux administrateurs.
 routeur.get('/:id', async (req, res) => {
   try {
-    await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
-      appliquerAvenantsDus(client, req.utilisateur.id));
-    const contrat = await requete(
-      `select c.*,
-              case when c.feuille_caisse and exists (
-                select 1 from echeances ef
-                where ef.contrat_id = c.id and ef.supprime_le is null and ef.statut <> 'payee'
-                  and ef.date_echeance <= current_date
-                  and ef.date_echeance > coalesce(c.feuille_caisse_maj_le, c.date_effet)
-              ) then false else c.feuille_caisse end as feuille_caisse,
-              case when c.fractionnement = 'prime_unique' then 'ferme' else 'rtr' end as type_duree,
-              cl.nom as client_nom, cl.telephone as client_telephone,
-              s.nom as souscripteur_nom,
-              coalesce(nullif(c.societe_leasing, ''), sl.nom) as societe_leasing_nom,
-              pa.nom as payeur_nom,
-              cp.nom as compagnie_nom, pr.nom as produit_nom, pr.branche
-       from contrats c
-       join clients cl on cl.id = c.client_id
-       left join clients s on s.id = c.souscripteur_id
-       left join clients sl on sl.id = c.societe_leasing_id
-       left join clients pa on pa.id = c.payeur_id
-       join compagnies cp on cp.id = c.compagnie_id
-       join produits pr on pr.id = c.produit_id
-       where c.id = $1 and c.supprime_le is null`,
-      [req.params.id]
-    );
-    if (contrat.rowCount === 0) {
-      return res.status(404).json({ erreur: 'Contrat introuvable ou archivé.' });
-    }
+    const estAdmin = req.utilisateur.role === 'admin';
+    const fiche = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
+      await appliquerAvenantsDus(client, req.utilisateur.id);
+      const contrat = await client.query(
+        `select c.*,
+                case when c.feuille_caisse and exists (
+                  select 1 from echeances ef
+                  where ef.contrat_id = c.id and ef.supprime_le is null and ef.statut <> 'payee'
+                    and ef.date_echeance <= current_date
+                    and ef.date_echeance > coalesce(c.feuille_caisse_maj_le, c.date_effet)
+                ) then false else c.feuille_caisse end as feuille_caisse,
+                case when c.fractionnement = 'prime_unique' then 'ferme' else 'rtr' end as type_duree,
+                cl.nom as client_nom, cl.telephone as client_telephone,
+                s.nom as souscripteur_nom,
+                coalesce(nullif(c.societe_leasing, ''), sl.nom) as societe_leasing_nom,
+                pa.nom as payeur_nom,
+                cp.nom as compagnie_nom, pr.nom as produit_nom, pr.branche
+         from contrats c
+         join clients cl on cl.id = c.client_id
+         left join clients s on s.id = c.souscripteur_id
+         left join clients sl on sl.id = c.societe_leasing_id
+         left join clients pa on pa.id = c.payeur_id
+         join compagnies cp on cp.id = c.compagnie_id
+         join produits pr on pr.id = c.produit_id
+         where c.id = $1 and c.supprime_le is null`,
+        [req.params.id]
+      );
+      if (contrat.rowCount === 0) return null;
 
-    const echeances = await requete(
-      `select e.*, coalesce(pmt.montant_regle, 0) as montant_regle
-       from echeances e
-       left join lateral (
-         select sum(montant) as montant_regle from paiements
-         where echeance_id = e.id and supprime_le is null
-       ) pmt on true
-       where e.contrat_id = $1 and e.supprime_le is null
-       order by e.date_echeance, e.numero_terme`,
-      [req.params.id]
-    );
+      const echeances = await client.query(
+        `select e.*, coalesce(pmt.montant_regle, 0) as montant_regle
+         from echeances e
+         left join lateral (
+           select sum(montant) as montant_regle from paiements
+           where echeance_id = e.id and supprime_le is null
+         ) pmt on true
+         where e.contrat_id = $1 and e.supprime_le is null
+         order by e.date_echeance, e.numero_terme`,
+        [req.params.id]
+      );
 
-    const paiements = await requete(
-      `select p.* from paiements p
-       join echeances e on e.id = p.echeance_id
-       where e.contrat_id = $1 and p.supprime_le is null
-       order by p.date_paiement desc`,
-      [req.params.id]
-    );
+      const paiements = await client.query(
+        `select p.* from paiements p
+         join echeances e on e.id = p.echeance_id
+         where e.contrat_id = $1 and p.supprime_le is null
+         order by p.date_paiement desc`,
+        [req.params.id]
+      );
 
-    const historique = await requete(
-      `select j.id, j.action, j.table_cible, j.ligne_id, j.etat_avant, j.etat_apres,
-              j.cree_le, j.utilisateur_id, u.nom as utilisateur_nom, u.email as utilisateur_email
-       from journal_audit j
-       left join utilisateurs u on u.id = j.utilisateur_id and u.organisation_id = j.organisation_id
-       where j.table_cible = 'contrats' and j.ligne_id = $1
-       order by j.cree_le desc
-       limit 100`,
-      [req.params.id]
-    );
+      const historique = !estAdmin ? { rows: [] } : await client.query(
+        `select j.id, j.action, j.table_cible, j.ligne_id, j.etat_avant, j.etat_apres,
+                j.cree_le, j.utilisateur_id, u.nom as utilisateur_nom, u.email as utilisateur_email
+         from journal_audit j
+         left join utilisateurs u on u.id = j.utilisateur_id and u.organisation_id = j.organisation_id
+         where j.table_cible = 'contrats' and j.ligne_id = $1
+         order by j.cree_le desc
+         limit 100`,
+        [req.params.id]
+      );
 
-    const piecesJointes = await requete(
-      `select id, nom_original, type_mime, taille_octets, ajoute_le
-       from pieces_jointes_contrats
-       where contrat_id = $1
-       order by ajoute_le desc`,
-      [req.params.id]
-    );
+      const piecesJointes = await client.query(
+        `select id, nom_original, type_mime, taille_octets, ajoute_le
+         from pieces_jointes_contrats
+         where contrat_id = $1
+         order by ajoute_le desc`,
+        [req.params.id]
+      );
 
-    const avenants = await requete(
-      `select a.*, u.nom as auteur_nom,
-              (a.date_effet <= current_date and (a.date_fin_validite is null or a.date_fin_validite >= current_date)) as est_version_active,
-              cp.nom as compagnie_nom, pr.nom as produit_nom,
-              s.nom as souscripteur_nom, pa.nom as payeur_nom
-       from avenants_contrats a
-       left join utilisateurs u on u.id = a.cree_par and u.organisation_id = a.organisation_id
-       left join compagnies cp on cp.id = a.compagnie_id
-       left join produits pr on pr.id = a.produit_id
-       left join clients s on s.id = a.souscripteur_id
-       left join clients pa on pa.id = a.payeur_id
-       where a.contrat_id = $1
-       order by a.numero_version desc`,
-      [req.params.id]
-    );
+      const avenants = await client.query(
+        `select a.*, u.nom as auteur_nom,
+                (a.date_effet <= current_date and (a.date_fin_validite is null or a.date_fin_validite >= current_date)) as est_version_active,
+                cp.nom as compagnie_nom, pr.nom as produit_nom,
+                s.nom as souscripteur_nom, pa.nom as payeur_nom
+         from avenants_contrats a
+         left join utilisateurs u on u.id = a.cree_par and u.organisation_id = a.organisation_id
+         left join compagnies cp on cp.id = a.compagnie_id
+         left join produits pr on pr.id = a.produit_id
+         left join clients s on s.id = a.souscripteur_id
+         left join clients pa on pa.id = a.payeur_id
+         where a.contrat_id = $1
+         order by a.numero_version desc`,
+        [req.params.id]
+      );
 
-    res.json({
-      ...contrat.rows[0],
-      echeances: echeances.rows,
-      paiements: paiements.rows,
-      historique: historique.rows.map(resumerLigneAudit),
-      avenants: avenants.rows,
-      piecesJointes: piecesJointes.rows,
+      const idsClients = [...new Set(avenants.rows.flatMap((version) => (version.modifications || [])
+        .filter((modification) => ['souscripteur_id', 'payeur_id'].includes(modification.champ))
+        .flatMap((modification) => [modification.avant, modification.apres])
+        .filter(Boolean)))];
+      const nomsClients = idsClients.length
+        ? await client.query('select id, nom from clients where id = any($1::uuid[])', [idsClients])
+        : { rows: [] };
+
+      return {
+        ...contrat.rows[0],
+        echeances: echeances.rows,
+        paiements: paiements.rows,
+        ...(estAdmin ? { historique: historique.rows.map(resumerLigneAudit) } : {}),
+        avenants: avenants.rows,
+        nomsClients: Object.fromEntries(nomsClients.rows.map((ligne) => [ligne.id, ligne.nom])),
+        piecesJointes: piecesJointes.rows,
+      };
     });
+    if (!fiche) return res.status(404).json({ erreur: 'Contrat introuvable ou archivé.' });
+    return res.json(fiche);
   } catch (erreur) {
-    gererErreur(res, erreur, 'contrats.fiche');
+    return gererErreur(res, erreur, 'contrats.fiche');
   }
 });
 
@@ -449,7 +466,11 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
            souscripteur_id = $2, societe_leasing = $3, payeur_id = $4,
            compagnie_id = $5, produit_id = $6, type_contrat = $7, immatriculation = $8,
            date_fin_contrat = $9, duree_mois = $10, fractionnement = $11,
-           prime_totale = $12, retour_feuille_caisse = $13, remarque = $14, statut = $15
+           prime_totale = $12, retour_feuille_caisse = $13, remarque = $14, statut = $15,
+           prime_avenant = case when numero_version = 1 then 0 else $12::numeric - coalesce((
+             select p.prime_totale from avenants_contrats p
+             where p.contrat_id = $1 and p.numero_version = avenants_contrats.numero_version - 1
+           ), $12::numeric) end
          where id = (
            select id from avenants_contrats
            where contrat_id = $1 and date_effet <= current_date
@@ -475,26 +496,100 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
   }
 });
 
+function erreurAvenant(message, status = 400) {
+  const erreur = new Error(message);
+  erreur.status = status;
+  return erreur;
+}
+
+// Valide la saisie commune à la création et à la modification d'un avenant.
+function lireSaisieAvenant(corps) {
+  const { dateEffetAvenant, compagnieId, produitId, fractionnement, primeAvenant } = corps;
+  if (!dateEffetAvenant || !compagnieId || !produitId || !fractionnement) {
+    throw erreurAvenant("La date d'effet et les données obligatoires de l'avenant sont requises.");
+  }
+  if (primeAvenant === null || primeAvenant === undefined || primeAvenant === ''
+      || !Number.isFinite(Number(primeAvenant))) {
+    throw erreurAvenant("Saisissez la prime de l'avenant (0 si la prime ne change pas).");
+  }
+  const remarque = String(corps.remarque || '').trim();
+  if (remarque.length > 2000) {
+    throw erreurAvenant('La remarque ne doit pas dépasser 2 000 caractères.');
+  }
+  return {
+    ...corps,
+    primeAvenant: Number(primeAvenant),
+    remarque,
+    regles: normaliserDureeEtFractionnement(corps.typeDuree, fractionnement),
+  };
+}
+
+// Construit la version issue d'un avenant : la prime saisie s'ajoute à celle
+// de la version précédente pour donner la nouvelle prime totale.
+function construireVersionAvenant(contrat, precedente, saisie, statutParDefaut) {
+  if (saisie.dateEffetAvenant <= precedente.date_effet) {
+    throw erreurAvenant("La date d'effet doit être postérieure à celle de la version précédente.");
+  }
+  const primeTotale = calculerPrimeTotale(precedente.prime_totale, saisie.primeAvenant);
+  if (primeTotale < 0) {
+    throw erreurAvenant('La prime totale après avenant ne peut pas être négative.');
+  }
+  const dateFinEnregistree = saisie.dateFin
+    ? validerDateFinFerme(saisie.dateEffetAvenant, saisie.dateFin)
+    : calculerDateFin(saisie.dateEffetAvenant, saisie.dureeMois ?? 12);
+  const version = {
+    date_effet: saisie.dateEffetAvenant,
+    souscripteur_id: saisie.souscripteurId || contrat.client_id,
+    societe_leasing: String(saisie.societeLeasing || '').trim() || null,
+    payeur_id: saisie.payeurId || saisie.souscripteurId || contrat.client_id,
+    compagnie_id: saisie.compagnieId,
+    produit_id: saisie.produitId,
+    type_contrat: saisie.typeContrat || null,
+    immatriculation: String(saisie.immatriculation || '').trim() || null,
+    date_fin_contrat: dateFinEnregistree,
+    duree_mois: Number(calculerDureeMoisEntreDates(contrat.date_effet, dateFinEnregistree)),
+    fractionnement: saisie.regles.fractionnement,
+    prime_totale: primeTotale,
+    prime_avenant: saisie.primeAvenant,
+    retour_feuille_caisse: saisie.retourFeuilleCaisse === true,
+    remarque: saisie.remarque || null,
+    statut: saisie.statut || statutParDefaut,
+  };
+  const modifications = calculerModifications(precedente, version);
+  if (!modifications.length) {
+    throw erreurAvenant("Modifiez au moins un champ avant d'enregistrer l'avenant.");
+  }
+  return { version, modifications };
+}
+
+// Seul le dernier avenant peut être modifié ou supprimé : les versions
+// suivantes sont calculées à partir de lui.
+async function chargerDernierAvenant(client, contratId, avenantId) {
+  const versions = await client.query(
+    `select * from avenants_contrats where contrat_id = $1
+     order by numero_version desc limit 2 for update`,
+    [contratId]
+  );
+  const [dernier, precedente] = versions.rows;
+  if (dernier?.id !== avenantId) {
+    const cible = await client.query(
+      'select numero_version from avenants_contrats where id = $1 and contrat_id = $2',
+      [avenantId, contratId]
+    );
+    if (!cible.rows[0]) throw erreurAvenant('Avenant introuvable.', 404);
+    if (cible.rows[0].numero_version > 1) {
+      throw erreurAvenant('Seul le dernier avenant du contrat peut être modifié ou supprimé.');
+    }
+  }
+  if (!precedente || dernier.id !== avenantId) {
+    throw erreurAvenant('La version initiale se corrige avec le bouton « Modifier » du contrat.');
+  }
+  return { avenant: dernier, precedente };
+}
+
 routeur.post('/:id/avenants', exigerRole('admin', 'agent'), async (req, res) => {
   try {
-    const {
-      dateEffetAvenant, souscripteurId, societeLeasing, payeurId,
-      compagnieId, produitId, typeContrat, immatriculation,
-      dateFin, dureeMois, fractionnement, primeTotale, statut,
-      retourFeuilleCaisse, remarque,
-    } = req.body || {};
-    if (!dateEffetAvenant || !compagnieId || !produitId || !fractionnement) {
-      return res.status(400).json({ erreur: "La date d'effet et les données obligatoires de l'avenant sont requises." });
-    }
-    if (!Number.isFinite(Number(primeTotale)) || Number(primeTotale) < 0) {
-      return res.status(400).json({ erreur: 'La prime doit être un montant positif ou nul.' });
-    }
-    const remarqueNormalisee = String(remarque || '').trim();
-    if (remarqueNormalisee.length > 2000) {
-      return res.status(400).json({ erreur: 'La remarque ne doit pas dépasser 2 000 caractères.' });
-    }
-    const regles = normaliserDureeEtFractionnement(req.body.typeDuree, fractionnement);
-
+    const saisie = lireSaisieAvenant(req.body || {});
     const avenant = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       await appliquerAvenantsDus(client, req.utilisateur.id);
       const contratResultat = await client.query(
@@ -511,76 +606,137 @@ routeur.post('/:id/avenants', exigerRole('admin', 'agent'), async (req, res) => 
         [contrat.id]
       );
       const precedente = derniereVersion.rows[0];
-      if (dateEffetAvenant <= precedente.date_effet) {
-        const erreur = new Error("La date d'effet doit être postérieure à celle de la dernière version.");
-        erreur.code = 'AVENANT_DATE_INVALIDE';
-        throw erreur;
-      }
       if (precedente.date_effet > new Date().toISOString().slice(0, 10)) {
-        const erreur = new Error('Un avenant futur existe déjà pour ce contrat.');
-        erreur.code = 'AVENANT_FUTUR_EXISTANT';
-        throw erreur;
+        throw erreurAvenant('Un avenant futur existe déjà pour ce contrat : modifiez-le ou supprimez-le.');
       }
-      const dateFinEnregistree = dateFin
-        ? validerDateFinFerme(dateEffetAvenant, dateFin)
-        : calculerDateFin(dateEffetAvenant, dureeMois ?? 12);
-      const dureeTechnique = calculerDureeMoisEntreDates(contrat.date_effet, dateFinEnregistree);
-      const nouvelleVersion = {
-        souscripteur_id: souscripteurId || contrat.client_id,
-        societe_leasing: String(societeLeasing || '').trim() || null,
-        payeur_id: payeurId || souscripteurId || contrat.client_id,
-        compagnie_id: compagnieId,
-        produit_id: produitId,
-        type_contrat: typeContrat || null,
-        immatriculation: String(immatriculation || '').trim() || null,
-        date_fin_contrat: dateFinEnregistree,
-        duree_mois: Number(dureeTechnique),
-        fractionnement: regles.fractionnement,
-        prime_totale: Number(primeTotale),
-        retour_feuille_caisse: retourFeuilleCaisse === true,
-        remarque: remarqueNormalisee || null,
-        statut: statut || contrat.statut,
-      };
-      const modifications = calculerModifications(precedente, nouvelleVersion);
-      if (!modifications.length) {
-        const erreur = new Error("Modifiez au moins un champ avant d'enregistrer l'avenant.");
-        erreur.code = 'AVENANT_SANS_MODIFICATION';
-        throw erreur;
-      }
+      const { version, modifications } = construireVersionAvenant(contrat, precedente, saisie, contrat.statut);
       await client.query(
         `update avenants_contrats set date_fin_validite = ($2::date - 1)
          where id = $1`,
-        [precedente.id, dateEffetAvenant]
+        [precedente.id, version.date_effet]
       );
       const resultat = await client.query(
         `insert into avenants_contrats (
            contrat_id, numero_version, date_effet, souscripteur_id, societe_leasing,
            payeur_id, compagnie_id, produit_id, type_contrat, immatriculation,
-           date_fin_contrat, duree_mois, fractionnement, prime_totale,
+           date_fin_contrat, duree_mois, fractionnement, prime_totale, prime_avenant,
            retour_feuille_caisse, remarque, statut, modifications, cree_par
          ) values (
            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-           $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19
+           $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20
          ) returning *`,
         [
-          contrat.id, precedente.numero_version + 1, dateEffetAvenant,
-          nouvelleVersion.souscripteur_id, nouvelleVersion.societe_leasing,
-          nouvelleVersion.payeur_id, nouvelleVersion.compagnie_id, nouvelleVersion.produit_id,
-          nouvelleVersion.type_contrat, nouvelleVersion.immatriculation,
-          nouvelleVersion.date_fin_contrat, nouvelleVersion.duree_mois,
-          nouvelleVersion.fractionnement, nouvelleVersion.prime_totale,
-          nouvelleVersion.retour_feuille_caisse, nouvelleVersion.remarque,
-          nouvelleVersion.statut, JSON.stringify(modifications), req.utilisateur.id,
+          contrat.id, precedente.numero_version + 1, version.date_effet,
+          version.souscripteur_id, version.societe_leasing,
+          version.payeur_id, version.compagnie_id, version.produit_id,
+          version.type_contrat, version.immatriculation,
+          version.date_fin_contrat, version.duree_mois,
+          version.fractionnement, version.prime_totale, version.prime_avenant,
+          version.retour_feuille_caisse, version.remarque,
+          version.statut, JSON.stringify(modifications), req.utilisateur.id,
         ]
       );
+      await journaliser(client, {
+        utilisateurId: req.utilisateur.id,
+        action: 'creation',
+        tableCible: 'avenants_contrats',
+        ligneId: resultat.rows[0].id,
+        etatApres: resultat.rows[0],
+      });
+      // Un avenant daté d'aujourd'hui s'applique tout de suite ; un avenant futur reste planifié.
       await appliquerAvenantsDus(client, req.utilisateur.id);
       return resultat.rows[0];
     });
     if (!avenant) return res.status(404).json({ erreur: 'Contrat introuvable ou archivé.' });
     return res.status(201).json(avenant);
   } catch (erreur) {
-    if (erreur.code?.startsWith('AVENANT_')) return res.status(400).json({ erreur: erreur.message });
     return gererErreur(res, erreur, 'contrats.avenant');
+  }
+});
+
+routeur.put('/:id/avenants/:avenantId', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const saisie = lireSaisieAvenant(req.body || {});
+    const avenant = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
+      const contratResultat = await client.query(
+        'select * from contrats where id = $1 and supprime_le is null for update',
+        [req.params.id]
+      );
+      const contrat = contratResultat.rows[0];
+      if (!contrat) return null;
+      const { avenant: actuel, precedente } = await chargerDernierAvenant(client, contrat.id, req.params.avenantId);
+      const { version, modifications } = construireVersionAvenant(contrat, precedente, saisie, actuel.statut);
+      await client.query(
+        `update avenants_contrats set date_fin_validite = ($2::date - 1)
+         where id = $1`,
+        [precedente.id, version.date_effet]
+      );
+      // applique_le repart à null : un avenant reporté dans le futur redevient planifié.
+      const resultat = await client.query(
+        `update avenants_contrats set
+           date_effet = $2, souscripteur_id = $3, societe_leasing = $4, payeur_id = $5,
+           compagnie_id = $6, produit_id = $7, type_contrat = $8, immatriculation = $9,
+           date_fin_contrat = $10, duree_mois = $11, fractionnement = $12,
+           prime_totale = $13, prime_avenant = $14, retour_feuille_caisse = $15,
+           remarque = $16, statut = $17, modifications = $18::jsonb, applique_le = null
+         where id = $1 returning *`,
+        [
+          actuel.id, version.date_effet, version.souscripteur_id, version.societe_leasing,
+          version.payeur_id, version.compagnie_id, version.produit_id,
+          version.type_contrat, version.immatriculation,
+          version.date_fin_contrat, version.duree_mois, version.fractionnement,
+          version.prime_totale, version.prime_avenant, version.retour_feuille_caisse,
+          version.remarque, version.statut, JSON.stringify(modifications),
+        ]
+      );
+      await journaliser(client, {
+        utilisateurId: req.utilisateur.id,
+        action: 'modification',
+        tableCible: 'avenants_contrats',
+        ligneId: actuel.id,
+        etatAvant: actuel,
+        etatApres: resultat.rows[0],
+      });
+      await appliquerVersionCourante(client, contrat.id, req.utilisateur.id);
+      return resultat.rows[0];
+    });
+    if (!avenant) return res.status(404).json({ erreur: 'Contrat introuvable ou archivé.' });
+    return res.json(avenant);
+  } catch (erreur) {
+    return gererErreur(res, erreur, 'contrats.avenant-modification');
+  }
+});
+
+// La suppression du dernier avenant remet le contrat sur la version précédente.
+routeur.delete('/:id/avenants/:avenantId', exigerRole('admin', 'agent'), async (req, res) => {
+  try {
+    const supprime = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
+      const contratResultat = await client.query(
+        'select id from contrats where id = $1 and supprime_le is null for update',
+        [req.params.id]
+      );
+      if (!contratResultat.rows[0]) return null;
+      const { avenant, precedente } = await chargerDernierAvenant(client, req.params.id, req.params.avenantId);
+      await client.query('delete from avenants_contrats where id = $1', [avenant.id]);
+      await client.query(
+        'update avenants_contrats set date_fin_validite = null where id = $1',
+        [precedente.id]
+      );
+      await journaliser(client, {
+        utilisateurId: req.utilisateur.id,
+        action: 'suppression',
+        tableCible: 'avenants_contrats',
+        ligneId: avenant.id,
+        etatAvant: avenant,
+        etatApres: { suppression_definitive: true },
+      });
+      await appliquerVersionCourante(client, req.params.id, req.utilisateur.id);
+      return avenant;
+    });
+    if (!supprime) return res.status(404).json({ erreur: 'Contrat introuvable ou archivé.' });
+    return res.json({ ok: true });
+  } catch (erreur) {
+    return gererErreur(res, erreur, 'contrats.avenant-suppression');
   }
 });
 

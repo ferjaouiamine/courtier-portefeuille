@@ -7,6 +7,7 @@ const etat = {
   produits: [],
   clients: [],
   contratId: null,
+  contratCourant: null,
   clientId: null,
   echeanceId: null,
   remarqueContrat: '',
@@ -117,6 +118,7 @@ const TYPES_AUDIT = {
   clients: 'Client',
   contrats: 'Contrat',
   echeances: 'Échéance',
+  avenants_contrats: 'Avenant',
   paiements: 'Encaissement',
   relances: 'Relance',
   pieces_jointes_contrats: 'Pièce jointe',
@@ -456,6 +458,10 @@ function peutEcrire() {
   return etat.utilisateur?.role !== 'lecture';
 }
 
+function estAdmin() {
+  return etat.utilisateur?.role === 'admin';
+}
+
 function afficherConnexion() {
   etat.utilisateur = null;
   etat.echeanciersCompletes = false;
@@ -582,6 +588,7 @@ async function completerEcheanciers() {
 }
 
 async function chargerClientsPourSelect() {
+  if (etat.clients.length) return;
   const resultat = await api('/api/clients?limite=100');
   etat.clients = resultat.donnees;
   remplirSelect('#contrat-client', etat.clients, (x) => x.nom, false);
@@ -725,9 +732,9 @@ async function chargerContrats() {
 }
 
 async function ouvrirFicheContrat(id) {
-  await Promise.all([chargerReferentiels(), chargerClientsPourSelect()]);
-  const contrat = await api(`/api/contrats/${id}`);
+  const [contrat] = await Promise.all([api(`/api/contrats/${id}`), chargerReferentiels()]);
   etat.contratId = contrat.id;
+  etat.contratCourant = contrat;
   etat.remarqueContrat = contrat.remarque || '';
   etat.paiementsContrat = contrat.paiements;
   etat.echeancesContrat = contrat.echeances;
@@ -753,7 +760,7 @@ async function ouvrirFicheContrat(id) {
     <td>${echapper(libelleCode(ligne.mode_paiement))}</td>
     <td>${echapper(ligne.reference || '—')}</td>
     <td><span class="remarque-contrat" title="${echapper(ligne.remarque || '')}">${echapper(ligne.remarque || '—')}</span></td></tr>`).join('');
-  const historique = contrat.historique.map((ligne) => `<div class="entree-historique">
+  const historique = (contrat.historique || []).map((ligne) => `<div class="entree-historique">
     <span class="date">${formaterDate(ligne.cree_le, true)}</span>
     <span><strong>${echapper(ACTIONS_AUDIT[ligne.action] || libelleCode(ligne.action))}</strong>
     par ${echapper(ligne.utilisateur_nom)}${ligne.utilisateur_email ? `<br><span class="texte-secondaire">${echapper(ligne.utilisateur_email)}</span>` : ''}
@@ -762,11 +769,11 @@ async function ouvrirFicheContrat(id) {
     if (valeur === null || valeur === undefined || valeur === '') return 'Non renseigné';
     if (modification.champ === 'compagnie_id') return etat.compagnies.find((x) => x.id === valeur)?.nom || valeur;
     if (modification.champ === 'produit_id') return etat.produits.find((x) => x.id === valeur)?.nom || valeur;
-    if (['souscripteur_id', 'payeur_id'].includes(modification.champ)) return etat.clients.find((x) => x.id === valeur)?.nom || valeur;
+    if (['souscripteur_id', 'payeur_id'].includes(modification.champ)) return contrat.nomsClients?.[valeur] || valeur;
     if (modification.champ === 'prime_totale') return formaterMontant(valeur);
     return formaterValeurAudit(valeur);
   };
-  const versions = (contrat.avenants || []).map((version) => {
+  const versions = (contrat.avenants || []).map((version, index) => {
     const modifications = (version.modifications || []).map((modification) => `<li>
       <strong>${echapper(modification.libelle || modification.champ)} :</strong>
       <span>${echapper(libelleValeurAvenant(modification, modification.avant))}</span>
@@ -782,12 +789,24 @@ async function ouvrirFicheContrat(id) {
     const periodeVersion = version.date_fin_validite
       ? `du ${formaterDate(version.date_effet)} au ${formaterDate(version.date_fin_validite)}`
       : `à partir du ${formaterDate(version.date_effet)}`;
+    const primeAvenant = Number(version.prime_avenant) || 0;
+    const primeVersion = version.numero_version === 1 ? '' : `<p class="prime-avenant">Prime de l’avenant :
+      <strong>${primeAvenant > 0 ? '+' : ''}${formaterMontant(primeAvenant)}</strong>
+      · Prime totale : <strong>${formaterMontant(version.prime_totale)}</strong></p>`;
+    // Seul le dernier avenant est modifiable : les versions suivantes en découlent.
+    const actionsVersion = peutEcrire() && index === 0 && version.numero_version > 1
+      ? `<div class="actions-ligne">
+        <button type="button" data-action="modifier-avenant" data-id="${echapper(version.id)}">Modifier</button>
+        <button type="button" class="danger" data-action="supprimer-avenant" data-id="${echapper(version.id)}">Supprimer</button></div>`
+      : '';
     return `<article class="version-contrat">
       <div class="version-contrat-entete"><div><strong>${version.numero_version === 1 ? 'Version initiale' : `Avenant n° ${version.numero_version - 1}`}</strong>
       <span>Version ${version.numero_version} · valable ${periodeVersion}</span></div>
       <span class="etiquette-version ${classeVersion}">${etatVersion}</span></div>
+      ${primeVersion}
       ${modifications ? `<ul class="differences-avenant">${modifications}</ul>` : '<p class="texte-secondaire">Données d’origine du contrat.</p>'}
       <p class="texte-secondaire">Créée par ${echapper(version.auteur_nom || 'Système')} le ${formaterDate(version.cree_le, true)}</p>
+      ${actionsVersion}
     </article>`;
   }).join('');
   const piecesJointes = (contrat.piecesJointes || []).map((piece) => `<li class="piece-jointe">
@@ -820,8 +839,8 @@ async function ouvrirFicheContrat(id) {
       ? `<div class="tableau-responsive"><table id="tableau-echeancier-contrat"><thead><tr><th>N°</th><th>Date</th><th>Montant</th><th>Statut</th></tr></thead><tbody>${echeances}</tbody></table></div>`
       : '<p class="etat-vide">Aucune échéance pour ce contrat.</p>'}</div>
     <div class="carte"><h3>Paiements</h3>${paiements ? `<div class="tableau-responsive"><table id="tableau-paiements-contrat"><thead><tr><th>Date du paiement</th><th>Montant</th><th>Feuille de caisse</th><th>Date de la feuille</th><th>Commission nette</th><th>Mode</th><th>Référence</th><th>Remarque</th></tr></thead><tbody>${paiements}</tbody></table></div>` : '<p class="etat-vide">Aucun paiement.</p>'}</div>
-    <div class="carte"><h3>Avenants / Historique</h3><div class="liste-versions-contrat">${versions || '<p class="etat-vide">Aucune version disponible.</p>'}</div></div>
-    <div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>`;
+    <div class="carte"><h3>Avenants</h3><div class="liste-versions-contrat">${versions || '<p class="etat-vide">Aucune version disponible.</p>'}</div></div>
+    ${estAdmin() ? `<div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>` : ''}`;
   await changerVue('fiche-contrat');
 }
 
@@ -870,7 +889,7 @@ async function ouvrirFicheClient(id) {
     <div>Date de naissance<div class="valeur">${formaterDate(client.date_naissance)}</div></div>
     <div>Code Finasure<div class="valeur">${echapper(client.code_client_finasure || '—')}</div></div></div>
     <div class="carte"><h3>Contrats et échéances</h3>${contrats ? `<div class="tableau-responsive"><table><thead><tr><th>N° contrat</th><th>Compagnie</th><th>Produit</th><th>Effet</th><th>Prime</th><th>Statut</th><th>Échéances</th><th>Documents</th></tr></thead><tbody>${contrats}</tbody></table></div>` : '<p class="etat-vide">Aucun contrat.</p>'}</div>
-    <div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>`;
+    ${estAdmin() ? `<div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>` : ''}`;
   await changerVue('fiche-client');
 }
 
@@ -944,8 +963,12 @@ async function ouvrirModaleContrat(contrat = null) {
   await Promise.all([chargerReferentiels(), chargerClientsPourSelect()]);
   etat.edition.contrat = contrat?.id || null;
   etat.edition.avenant = false;
+  etat.edition.avenantId = null;
   $('#zone-date-effet-avenant').hidden = true;
   $('#contrat-date-effet-avenant').required = false;
+  $('#libelle-contrat-prime').textContent = 'Prime totale (DT)';
+  $('#contrat-prime').min = '0.001';
+  $('#resume-prime-avenant').hidden = true;
   $('#contrat-client').disabled = false;
   $('#contrat-numero').readOnly = false;
   $('#contrat-date-effet').readOnly = false;
@@ -977,15 +1000,51 @@ async function ouvrirModaleContrat(contrat = null) {
   $('#modale-contrat').showModal();
 }
 
-async function ouvrirModaleAvenant(contrat) {
-  await ouvrirModaleContrat(contrat);
+function actualiserResumePrimeAvenant() {
+  if (!etat.edition.avenant) return;
+  const precedente = Number(etat.edition.primePrecedente) || 0;
+  const total = Math.round((precedente + (Number($('#contrat-prime').value) || 0)) * 1000) / 1000;
+  const resume = $('#resume-prime-avenant');
+  resume.textContent = `Prime actuelle : ${formaterMontant(precedente)} · Prime totale après avenant : ${formaterMontant(total)}`;
+  resume.hidden = false;
+}
+
+// La prime saisie est celle de l'avenant : elle s'ajoute à la prime de la version précédente.
+async function ouvrirModaleAvenant(contrat, avenant = null) {
+  await ouvrirModaleContrat(avenant ? {
+    ...contrat,
+    souscripteur_id: avenant.souscripteur_id,
+    societe_leasing: avenant.societe_leasing,
+    societe_leasing_nom: avenant.societe_leasing,
+    payeur_id: avenant.payeur_id,
+    compagnie_id: avenant.compagnie_id,
+    produit_id: avenant.produit_id,
+    immatriculation: avenant.immatriculation,
+    date_fin: avenant.date_fin_contrat,
+    duree_mois: avenant.duree_mois,
+    fractionnement: avenant.fractionnement,
+    type_duree: avenant.fractionnement === 'prime_unique' ? 'ferme' : 'rtr',
+    retour_feuille_caisse: avenant.retour_feuille_caisse,
+    remarque: avenant.remarque,
+  } : contrat);
   etat.edition.avenant = true;
-  $('#titre-modale-contrat').textContent = `Créer un avenant — ${contrat.numero_contrat}`;
+  etat.edition.avenantId = avenant?.id || null;
+  etat.edition.primePrecedente = avenant
+    ? Number(avenant.prime_totale) - Number(avenant.prime_avenant)
+    : Number(contrat.prime_totale);
+  $('#titre-modale-contrat').textContent = avenant
+    ? `Modifier l’avenant n° ${avenant.numero_version - 1} — ${contrat.numero_contrat}`
+    : `Créer un avenant — ${contrat.numero_contrat}`;
   $('#zone-date-effet-avenant').hidden = false;
   $('#contrat-date-effet-avenant').required = true;
   const aujourdhui = new Date().toISOString().slice(0, 10);
-  $('#contrat-date-effet-avenant').min = aujourdhui;
-  $('#contrat-date-effet-avenant').value = aujourdhui;
+  if (avenant) $('#contrat-date-effet-avenant').removeAttribute('min');
+  else $('#contrat-date-effet-avenant').min = aujourdhui;
+  $('#contrat-date-effet-avenant').value = avenant?.date_effet?.slice(0, 10) || aujourdhui;
+  $('#libelle-contrat-prime').textContent = 'Prime de l’avenant (DT)';
+  $('#contrat-prime').removeAttribute('min');
+  $('#contrat-prime').value = avenant ? Number(avenant.prime_avenant) : '';
+  actualiserResumePrimeAvenant();
   $('#contrat-client').disabled = true;
   $('#contrat-numero').readOnly = true;
   $('#contrat-date-effet').readOnly = true;
@@ -1091,9 +1150,18 @@ async function actionDeleguee(event) {
       $('#formulaire-relance').reset();
       $('#modale-relance').showModal();
     } else if (action === 'modifier-contrat') {
-      await ouvrirModaleContrat(await api(`/api/contrats/${etat.contratId}`));
+      await ouvrirModaleContrat(etat.contratCourant);
     } else if (action === 'creer-avenant') {
-      await ouvrirModaleAvenant(await api(`/api/contrats/${etat.contratId}`));
+      await ouvrirModaleAvenant(etat.contratCourant);
+    } else if (action === 'modifier-avenant') {
+      const avenant = (etat.contratCourant.avenants || []).find((ligne) => String(ligne.id) === String(id));
+      if (!avenant) throw new Error('Avenant introuvable. Rechargez la fiche du contrat.');
+      await ouvrirModaleAvenant(etat.contratCourant, avenant);
+    } else if (action === 'supprimer-avenant'
+        && window.confirm('Supprimer cet avenant ? Le contrat reviendra à la version précédente.')) {
+      await api(`/api/contrats/${etat.contratId}/avenants/${id}`, { method: 'DELETE' });
+      await ouvrirFicheContrat(etat.contratId);
+      afficherSucces('Avenant supprimé.', $('#vue-fiche-contrat'));
     } else if (action === 'renouveler-contrat' && window.confirm('Renouveler ce contrat sur la période suivante ?')) {
       const nouveau = await api(`/api/contrats/${etat.contratId}/renouveler`, { method: 'POST' });
       await ouvrirFicheContrat(nouveau.id);
@@ -1194,15 +1262,18 @@ function brancherFormulaires() {
         dateFin: $('#contrat-date-fin').value,
         typeDuree: $('#contrat-type-duree').value,
         fractionnement: $('#contrat-fractionnement').value,
-        primeTotale: Number($('#contrat-prime').value),
+        primeTotale: estAvenant ? null : Number($('#contrat-prime').value),
+        primeAvenant: estAvenant ? Number($('#contrat-prime').value) : null,
         retourFeuilleCaisse: $('#contrat-retour-feuille-oui').checked,
         remarque: $('#contrat-remarque').value.trim(),
         modePaiementInitial: $('#contrat-paiement-mode').value,
         referencePaiementInitial: $('#contrat-paiement-reference').value.trim(),
         dateEffetAvenant: estAvenant ? $('#contrat-date-effet-avenant').value : null,
       };
-      const contrat = await api(estAvenant ? `/api/contrats/${id}/avenants` : (id ? `/api/contrats/${id}` : '/api/contrats'), {
-        method: estAvenant ? 'POST' : (id ? 'PUT' : 'POST'), body: JSON.stringify(corps),
+      const avenantId = estAvenant ? etat.edition.avenantId : null;
+      const cheminAvenant = `/api/contrats/${id}/avenants${avenantId ? `/${avenantId}` : ''}`;
+      const contrat = await api(estAvenant ? cheminAvenant : (id ? `/api/contrats/${id}` : '/api/contrats'), {
+        method: estAvenant ? (avenantId ? 'PUT' : 'POST') : (id ? 'PUT' : 'POST'), body: JSON.stringify(corps),
       });
       $('#modale-contrat').close();
       await ouvrirFicheContrat(estAvenant ? id : contrat.id);
@@ -1377,6 +1448,7 @@ function brancherEvenements() {
   $('#bouton-nouveau-contrat').addEventListener('click', () => ouvrirModaleContrat().catch((e) => afficherErreur(e.message)));
   $('#bouton-nouvelle-compagnie').addEventListener('click', () => ouvrirModaleCompagnie());
   $('#bouton-nouveau-produit').addEventListener('click', () => ouvrirModaleProduit());
+  $('#contrat-prime').addEventListener('input', actualiserResumePrimeAvenant);
   $('#client-type').addEventListener('change', () => {
     const physique = $('#client-type').value === 'personne_physique';
     $('#zone-client-date-naissance').hidden = !physique;

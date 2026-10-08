@@ -68,7 +68,9 @@ routeur.get('/:id', async (req, res) => {
 
     const cumul = contrats.rows.reduce((acc, c) => acc + Number(c.prime_totale), 0);
 
-    const historique = await requete(
+    // L'historique d'audit est réservé aux administrateurs.
+    const estAdmin = req.utilisateur.role === 'admin';
+    const historique = !estAdmin ? { rows: [] } : await requete(
       `select j.id, j.action, j.table_cible, j.ligne_id, j.etat_avant, j.etat_apres,
               j.cree_le, j.utilisateur_id, u.nom as utilisateur_nom, u.email as utilisateur_email
        from journal_audit j
@@ -83,7 +85,7 @@ routeur.get('/:id', async (req, res) => {
       ...client.rows[0],
       contrats: contrats.rows,
       cumulPrimes: cumul,
-      historique: historique.rows.map(resumerLigneAudit),
+      ...(estAdmin ? { historique: historique.rows.map(resumerLigneAudit) } : {}),
     });
   } catch (erreur) {
     gererErreur(res, erreur, 'clients.fiche');

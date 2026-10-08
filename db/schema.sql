@@ -202,6 +202,7 @@ create table if not exists avenants_contrats (
   duree_mois             integer not null check (duree_mois between 1 and 1200),
   fractionnement         text not null check (fractionnement in ('annuel', 'semestriel', 'trimestriel', 'prime_unique')),
   prime_totale           numeric(12, 3) not null check (prime_totale >= 0),
+  prime_avenant          numeric(12, 3) not null default 0,
   retour_feuille_caisse  boolean not null default false,
   remarque               text,
   statut                 text not null check (statut in ('en_cours', 'renouvele', 'resilie', 'archive')),
@@ -218,6 +219,11 @@ create index if not exists ix_avenants_contrat_effet
   on avenants_contrats (contrat_id, date_effet desc);
 create index if not exists ix_avenants_organisation_effet
   on avenants_contrats (organisation_id, date_effet);
+-- Rend quasi gratuite la recherche des avenants planifiés arrivés à échéance.
+create index if not exists ix_avenants_a_appliquer
+  on avenants_contrats (date_effet) where applique_le is null and numero_version > 1;
+-- La prime saisie sur un avenant est un complément : prime totale = prime précédente + prime d'avenant.
+alter table avenants_contrats add column if not exists prime_avenant numeric(12, 3) not null default 0;
 
 insert into avenants_contrats (
   organisation_id, contrat_id, numero_version, date_effet, souscripteur_id,
@@ -231,6 +237,11 @@ select c.organisation_id, c.id, 1, c.date_effet, c.souscripteur_id,
        c.retour_feuille_caisse, c.remarque, c.statut, '[]'::jsonb, c.cree_par, c.cree_le, c.cree_le
 from contrats c
 where not exists (select 1 from avenants_contrats a where a.contrat_id = c.id);
+
+update avenants_contrats a set prime_avenant = a.prime_totale - p.prime_totale
+from avenants_contrats p
+where p.contrat_id = a.contrat_id and p.numero_version = a.numero_version - 1
+  and a.prime_avenant is distinct from a.prime_totale - p.prime_totale;
 
 create or replace function f_verifier_organisation_avenant() returns trigger as $$
 begin

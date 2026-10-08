@@ -56,6 +56,46 @@ async function creerVersionInitiale(client, contrat) {
   );
 }
 
+// La prime saisie sur un avenant s'ajoute à la prime de la version précédente.
+function calculerPrimeTotale(primePrecedente, primeAvenant) {
+  return Math.round((Number(primePrecedente) + Number(primeAvenant)) * 1000) / 1000;
+}
+
+// Recopie sur le contrat la version en vigueur aujourd'hui. Sert aussi à revenir
+// à la version précédente après la suppression ou le report d'un avenant.
+async function appliquerVersionCourante(client, contratId, utilisateurId = null) {
+  const version = await client.query(
+    `select * from avenants_contrats
+     where contrat_id = $1 and date_effet <= current_date
+     order by date_effet desc, numero_version desc limit 1`,
+    [contratId]
+  );
+  if (!version.rows[0]) return null;
+  const v = version.rows[0];
+  const resultat = await client.query(
+    `update contrats set
+       souscripteur_id = $2, societe_leasing = $3, payeur_id = $4,
+       compagnie_id = $5, produit_id = $6, type_contrat = $7, immatriculation = $8,
+       date_fin = $9, duree_mois = $10, fractionnement = $11, prime_totale = $12,
+       retour_feuille_caisse = $13, remarque = $14, statut = $15,
+       modifie_par = coalesce($16, modifie_par), modifie_le = now()
+     where id = $1 and supprime_le is null returning *`,
+    [
+      contratId, v.souscripteur_id, v.societe_leasing, v.payeur_id,
+      v.compagnie_id, v.produit_id, v.type_contrat, v.immatriculation,
+      v.date_fin_contrat, v.duree_mois, v.fractionnement, v.prime_totale,
+      v.retour_feuille_caisse, v.remarque, v.statut, utilisateurId,
+    ]
+  );
+  await client.query(
+    `update avenants_contrats set applique_le = now()
+     where contrat_id = $1 and date_effet <= current_date and applique_le is null`,
+    [contratId]
+  );
+  if (resultat.rows[0]) await synchroniserProchaineEcheance(client, resultat.rows[0]);
+  return resultat.rows[0] || null;
+}
+
 async function appliquerAvenantsDus(client, utilisateurId = null) {
   const contrats = await client.query(
     `select distinct contrat_id
@@ -63,41 +103,15 @@ async function appliquerAvenantsDus(client, utilisateurId = null) {
      where numero_version > 1 and applique_le is null and date_effet <= current_date`
   );
   for (const { contrat_id: contratId } of contrats.rows) {
-    const version = await client.query(
-      `select * from avenants_contrats
-       where contrat_id = $1 and date_effet <= current_date
-       order by date_effet desc, numero_version desc limit 1`,
-      [contratId]
-    );
-    if (!version.rows[0]) continue;
-    const v = version.rows[0];
-    const resultat = await client.query(
-      `update contrats set
-         souscripteur_id = $2, societe_leasing = $3, payeur_id = $4,
-         compagnie_id = $5, produit_id = $6, type_contrat = $7, immatriculation = $8,
-         date_fin = $9, duree_mois = $10, fractionnement = $11, prime_totale = $12,
-         retour_feuille_caisse = $13, remarque = $14, statut = $15,
-         modifie_par = coalesce($16, modifie_par), modifie_le = now()
-       where id = $1 and supprime_le is null returning *`,
-      [
-        contratId, v.souscripteur_id, v.societe_leasing, v.payeur_id,
-        v.compagnie_id, v.produit_id, v.type_contrat, v.immatriculation,
-        v.date_fin_contrat, v.duree_mois, v.fractionnement, v.prime_totale,
-        v.retour_feuille_caisse, v.remarque, v.statut, utilisateurId,
-      ]
-    );
-    await client.query(
-      `update avenants_contrats set applique_le = now()
-       where contrat_id = $1 and date_effet <= current_date and applique_le is null`,
-      [contratId]
-    );
-    if (resultat.rows[0]) await synchroniserProchaineEcheance(client, resultat.rows[0]);
+    await appliquerVersionCourante(client, contratId, utilisateurId);
   }
   return contrats.rowCount;
 }
 
 module.exports = {
   appliquerAvenantsDus,
+  appliquerVersionCourante,
   calculerModifications,
+  calculerPrimeTotale,
   creerVersionInitiale,
 };
