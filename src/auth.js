@@ -12,6 +12,17 @@ const BLOCAGE_MS = parseInt(process.env.CONNEXION_BLOCAGE_MINUTES || '15', 10) *
 // cabinet mono-instance ; repart à zéro si le serveur redémarre).
 const echecsParEmail = new Map();
 
+// Comptes autorisés à consulter l'historique (journal d'audit), séparés par des virgules.
+const EMAILS_HISTORIQUE = new Set(
+  (process.env.HISTORIQUE_EMAILS || 'admin@finasure.tn')
+    .split(',').map((email) => email.trim().toLowerCase()).filter(Boolean)
+);
+
+function peutVoirHistorique(utilisateur) {
+  return utilisateur?.role === 'admin'
+    && EMAILS_HISTORIQUE.has(String(utilisateur.email || '').toLowerCase());
+}
+
 function hacherMotDePasse(motDePasse) {
   return bcrypt.hash(motDePasse, 12);
 }
@@ -25,6 +36,7 @@ function creerJeton(utilisateur) {
     {
       id: utilisateur.id,
       nom: utilisateur.nom,
+      email: utilisateur.email,
       role: utilisateur.role,
       organisationId: utilisateur.organisation_id,
     },
@@ -98,6 +110,14 @@ function exigerRole(...rolesAutorises) {
   };
 }
 
+// Middleware : réserve l'historique aux comptes désignés.
+function exigerHistorique(req, res, next) {
+  if (!peutVoirHistorique(req.utilisateur)) {
+    return res.status(403).json({ erreur: "Votre profil ne permet pas de consulter l'historique." });
+  }
+  return next();
+}
+
 module.exports = {
   hacherMotDePasse,
   verifierMotDePasse,
@@ -109,4 +129,6 @@ module.exports = {
   reinitialiserEchecs,
   exigerConnexion,
   exigerRole,
+  exigerHistorique,
+  peutVoirHistorique,
 };

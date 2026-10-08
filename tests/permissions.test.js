@@ -8,7 +8,7 @@ const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
 const request = require('supertest');
 
-const { exigerConnexion, exigerRole } = require('../src/auth');
+const { exigerConnexion, exigerRole, peutVoirHistorique } = require('../src/auth');
 const { avecOrganisation, organisationCourante } = require('../src/contexte');
 const { pool, requete } = require('../src/db');
 const { Pool } = require('pg');
@@ -55,6 +55,13 @@ test('le journal global est réservé aux administrateurs', async (t) => {
     .get('/api/journal-audit')
     .set('Cookie', `jeton=${jeton('agent')}`)
     .expect(403);
+});
+
+test("l'historique est réservé au compte administrateur désigné", () => {
+  assert.equal(peutVoirHistorique({ role: 'admin', email: 'Admin@finasure.tn' }), true);
+  assert.equal(peutVoirHistorique({ role: 'admin', email: 'autre.admin@finasure.tn' }), false);
+  assert.equal(peutVoirHistorique({ role: 'agent', email: 'admin@finasure.tn' }), false);
+  assert.equal(peutVoirHistorique({ role: 'admin' }), false);
 });
 
 test('le JWT propage l’organisation dans le contexte de la requête', async () => {

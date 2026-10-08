@@ -458,8 +458,8 @@ function peutEcrire() {
   return etat.utilisateur?.role !== 'lecture';
 }
 
-function estAdmin() {
-  return etat.utilisateur?.role === 'admin';
+function voitHistorique() {
+  return etat.utilisateur?.voitHistorique === true;
 }
 
 function afficherConnexion() {
@@ -521,13 +521,14 @@ async function api(chemin, options = {}) {
 
 function appliquerDroits() {
   $('#nav-corbeille').hidden = etat.utilisateur.role !== 'admin';
-  $('#nav-journal').hidden = etat.utilisateur.role !== 'admin';
+  $('#nav-journal').hidden = !voitHistorique();
   $$('#bouton-nouveau-contrat, #bouton-nouveau-client, #bouton-nouvelle-compagnie, #bouton-nouveau-produit')
     .forEach((element) => { element.hidden = !peutEcrire(); });
 }
 
 async function changerVue(nom) {
-  if (['corbeille', 'journal'].includes(nom) && etat.utilisateur?.role !== 'admin') nom = 'tableau-de-bord';
+  if (nom === 'corbeille' && etat.utilisateur?.role !== 'admin') nom = 'tableau-de-bord';
+  if (nom === 'journal' && !voitHistorique()) nom = 'tableau-de-bord';
   etat.vue = nom;
   effacerErreurs();
   $$('.vue').forEach((vue) => { vue.hidden = vue.id !== `vue-${nom}`; });
@@ -840,7 +841,7 @@ async function ouvrirFicheContrat(id) {
       : '<p class="etat-vide">Aucune échéance pour ce contrat.</p>'}</div>
     <div class="carte"><h3>Paiements</h3>${paiements ? `<div class="tableau-responsive"><table id="tableau-paiements-contrat"><thead><tr><th>Date du paiement</th><th>Montant</th><th>Feuille de caisse</th><th>Date de la feuille</th><th>Commission nette</th><th>Mode</th><th>Référence</th><th>Remarque</th></tr></thead><tbody>${paiements}</tbody></table></div>` : '<p class="etat-vide">Aucun paiement.</p>'}</div>
     <div class="carte"><h3>Avenants</h3><div class="liste-versions-contrat">${versions || '<p class="etat-vide">Aucune version disponible.</p>'}</div></div>
-    ${estAdmin() ? `<div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>` : ''}`;
+    ${voitHistorique() ? `<div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>` : ''}`;
   await changerVue('fiche-contrat');
 }
 
@@ -889,7 +890,7 @@ async function ouvrirFicheClient(id) {
     <div>Date de naissance<div class="valeur">${formaterDate(client.date_naissance)}</div></div>
     <div>Code Finasure<div class="valeur">${echapper(client.code_client_finasure || '—')}</div></div></div>
     <div class="carte"><h3>Contrats et échéances</h3>${contrats ? `<div class="tableau-responsive"><table><thead><tr><th>N° contrat</th><th>Compagnie</th><th>Produit</th><th>Effet</th><th>Prime</th><th>Statut</th><th>Échéances</th><th>Documents</th></tr></thead><tbody>${contrats}</tbody></table></div>` : '<p class="etat-vide">Aucun contrat.</p>'}</div>
-    ${estAdmin() ? `<div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>` : ''}`;
+    ${voitHistorique() ? `<div class="carte"><h3>Historique</h3><div class="frise-historique">${historique || '<p class="etat-vide">Aucun historique.</p>'}</div></div>` : ''}`;
   await changerVue('fiche-client');
 }
 

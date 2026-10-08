@@ -10,6 +10,7 @@ const {
   enregistrerEchec,
   reinitialiserEchecs,
   exigerConnexion,
+  peutVoirHistorique,
 } = require('../auth');
 const { gererErreur } = require('../erreurs');
 const { avecOrganisation } = require('../contexte');
@@ -67,7 +68,12 @@ routeur.post('/connexion', limiteurConnexion, async (req, res) => {
       [utilisateur.id, utilisateur.email]
     ));
 
-    res.json({ id: utilisateur.id, nom: utilisateur.nom, role: utilisateur.role });
+    res.json({
+      id: utilisateur.id,
+      nom: utilisateur.nom,
+      role: utilisateur.role,
+      voitHistorique: peutVoirHistorique(utilisateur),
+    });
   } catch (erreur) {
     gererErreur(res, erreur, 'auth.connexion');
   }
@@ -79,7 +85,7 @@ routeur.post('/deconnexion', (req, res) => {
 });
 
 routeur.get('/moi', exigerConnexion, (req, res) => {
-  res.json(req.utilisateur);
+  res.json({ ...req.utilisateur, voitHistorique: peutVoirHistorique(req.utilisateur) });
 });
 
 module.exports = routeur;

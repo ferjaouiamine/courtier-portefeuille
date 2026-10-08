@@ -1,6 +1,6 @@
 const express = require('express');
 const { requete, transactionAvecUtilisateur } = require('../db');
-const { exigerConnexion, exigerRole } = require('../auth');
+const { exigerConnexion, exigerRole, exigerHistorique } = require('../auth');
 const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
 const { journaliser, resumerLigneAudit } = require('../audit');
@@ -304,7 +304,7 @@ routeur.delete('/corbeille/:table/:id', exigerRole('admin'), async (req, res) =>
 });
 
 // Journal transversal, réservé aux administrateurs de l'organisation courante.
-routeur.get('/journal-audit', exigerRole('admin'), async (req, res) => {
+routeur.get('/journal-audit', exigerHistorique, async (req, res) => {
   try {
     const { action, table: tableCible, recherche } = req.query;
     const { page, limite, offset } = lirePagination(req);

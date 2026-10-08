@@ -83,6 +83,7 @@ test('archiver un client ou contrat masque ses valeurs et la suppression efface 
     const token = jwt.sign({
       id: ids.utilisateur,
       nom: 'Admin test',
+      email: 'admin@finasure.tn',
       role: 'admin',
       organisationId: ids.organisation,
     }, process.env.JWT_SECRET);

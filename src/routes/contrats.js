@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { requete, transactionAvecUtilisateur } = require('../db');
-const { exigerConnexion, exigerRole } = require('../auth');
+const { exigerConnexion, exigerRole, peutVoirHistorique } = require('../auth');
 const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
 const { journaliser, resumerLigneAudit } = require('../audit');
@@ -128,10 +128,10 @@ routeur.get('/', async (req, res) => {
 
 // Fiche contrat : échéancier complet, paiements rattachés et avenants.
 // Tout est lu sur une seule connexion pour limiter les allers-retours avec la base.
-// L'historique d'audit est réservé aux administrateurs.
+// L'historique d'audit est réservé aux comptes désignés (voir src/auth.js).
 routeur.get('/:id', async (req, res) => {
   try {
-    const estAdmin = req.utilisateur.role === 'admin';
+    const voitHistorique = peutVoirHistorique(req.utilisateur);
     const fiche = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       await appliquerAvenantsDus(client, req.utilisateur.id);
       const contrat = await client.query(
@@ -180,7 +180,7 @@ routeur.get('/:id', async (req, res) => {
         [req.params.id]
       );
 
-      const historique = !estAdmin ? { rows: [] } : await client.query(
+      const historique = !voitHistorique ? { rows: [] } : await client.query(
         `select j.id, j.action, j.table_cible, j.ligne_id, j.etat_avant, j.etat_apres,
                 j.cree_le, j.utilisateur_id, u.nom as utilisateur_nom, u.email as utilisateur_email
          from journal_audit j
@@ -227,7 +227,7 @@ routeur.get('/:id', async (req, res) => {
         ...contrat.rows[0],
         echeances: echeances.rows,
         paiements: paiements.rows,
-        ...(estAdmin ? { historique: historique.rows.map(resumerLigneAudit) } : {}),
+        ...(voitHistorique ? { historique: historique.rows.map(resumerLigneAudit) } : {}),
         avenants: avenants.rows,
         nomsClients: Object.fromEntries(nomsClients.rows.map((ligne) => [ligne.id, ligne.nom])),
         piecesJointes: piecesJointes.rows,
