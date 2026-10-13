@@ -60,3 +60,15 @@ test('une durée RTR refuse la prime unique', () => {
     /fréquence annuelle, semestrielle ou trimestrielle/
   );
 });
+
+test('une commission supérieure au paiement exige une justification', () => {
+  assert.throws(
+    () => normaliserFeuilleCaisse(true, '200', { montant: 100, remarque: '' }),
+    /doit être justifiée/
+  );
+  assert.equal(
+    normaliserFeuilleCaisse(true, '200', { montant: 100, remarque: 'Regroupement de commissions' })
+      .commissionNette,
+    200
+  );
+});

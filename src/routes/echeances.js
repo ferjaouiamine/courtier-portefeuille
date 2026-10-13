@@ -3,7 +3,9 @@ const { requete, transactionAvecUtilisateur } = require('../db');
 const { exigerConnexion, exigerRole } = require('../auth');
 const { gererErreur } = require('../erreurs');
 const { lirePagination, reponsePaginee } = require('../pagination');
-const { completerTousLesEcheanciers, synchroniserProchaineEcheance } = require('../echeancier');
+const {
+  actualiserStatutsEchus, completerTousLesEcheanciers, synchroniserProchaineEcheance,
+} = require('../echeancier');
 const { normaliserFeuilleCaisse } = require('../regles-contrat');
 const { synchroniserResumePaiementsContrat } = require('../paiements');
 
@@ -62,10 +64,11 @@ routeur.get('/', async (req, res) => {
 // Maintient tous les termes jusqu'à la date de fin des contrats RTR.
 routeur.post('/completer', exigerRole('admin', 'agent'), async (req, res) => {
   try {
-    const modifications = await transactionAvecUtilisateur(req.utilisateur.id, (client) =>
-      completerTousLesEcheanciers(client)
-    );
-    res.json({ ok: true, modifications });
+    const bilan = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => ({
+      modifications: await completerTousLesEcheanciers(client),
+      statutsActualises: await actualiserStatutsEchus(client),
+    }));
+    res.json({ ok: true, ...bilan });
   } catch (erreur) {
     gererErreur(res, erreur, 'echeances.completion');
   }
@@ -89,7 +92,9 @@ routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) =>
     if (remarqueNormalisee.length > 2000) {
       return res.status(400).json({ erreur: 'La remarque ne peut pas dépasser 2 000 caractères.' });
     }
-    const caisse = normaliserFeuilleCaisse(feuilleCaisse, commissionNette);
+    const caisse = normaliserFeuilleCaisse(feuilleCaisse, commissionNette, {
+      montant, remarque: remarqueNormalisee,
+    });
 
     const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const echeance = await client.query(
@@ -104,6 +109,12 @@ routeur.post('/:id/paiements', exigerRole('admin', 'agent'), async (req, res) =>
       if (echeance.rowCount === 0) return null;
 
       const ligne = echeance.rows[0];
+      const dateCourante = await client.query('select current_date::text as date');
+      if (datePaiement && datePaiement > dateCourante.rows[0].date) {
+        const erreur = new Error('La date du paiement ne peut pas être dans le futur.');
+        erreur.status = 400;
+        throw erreur;
+      }
       const paiementsExistants = await client.query(
         `select coalesce(sum(montant), 0) as total
          from paiements where echeance_id = $1 and supprime_le is null`,
@@ -187,7 +198,9 @@ routeur.put('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (r
     if (remarqueNormalisee.length > 2000) {
       return res.status(400).json({ erreur: 'La remarque ne peut pas dépasser 2 000 caractères.' });
     }
-    const caisse = normaliserFeuilleCaisse(feuilleCaisse, commissionNette);
+    const caisse = normaliserFeuilleCaisse(feuilleCaisse, commissionNette, {
+      montant, remarque: remarqueNormalisee,
+    });
 
     const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       const paiementExistant = await client.query(
@@ -202,6 +215,12 @@ routeur.put('/:id/paiements/:paiementId', exigerRole('admin', 'agent'), async (r
       if (paiementExistant.rowCount === 0) return null;
 
       const ligne = paiementExistant.rows[0];
+      const dateCourante = await client.query('select current_date::text as date');
+      if (datePaiement && datePaiement > dateCourante.rows[0].date) {
+        const erreur = new Error('La date du paiement ne peut pas être dans le futur.');
+        erreur.status = 400;
+        throw erreur;
+      }
       const autresPaiements = await client.query(
         `select coalesce(sum(montant), 0) as total
          from paiements

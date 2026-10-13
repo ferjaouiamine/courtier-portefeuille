@@ -90,7 +90,7 @@ test('archiver un client ou contrat masque ses valeurs et la suppression efface 
     const cookie = `jeton=${token}`;
 
     const avant = await request(app).get('/api/tableau-de-bord').set('Cookie', cookie).expect(200);
-    assert.equal(Number(avant.body.encaissements12Mois[0].total), 321.123);
+    assert.equal(Number(avant.body.encaissementsPeriode[0].total), 321.123);
 
     await administration.query("update contrats set statut = 'resilie' where id = $1", [ids.contrat]);
     await request(app).delete(`/api/clients/${ids.client}`).set('Cookie', cookie).expect(200);
@@ -102,17 +102,17 @@ test('archiver un client ou contrat masque ses valeurs et la suppression efface 
     assert.equal(traceArchivage.utilisateur_nom, 'Admin test');
     assert.equal(traceArchivage.action, 'suppression');
     const apresArchivageClient = await request(app).get('/api/tableau-de-bord').set('Cookie', cookie).expect(200);
-    assert.equal(apresArchivageClient.body.encaissements12Mois.length, 0);
+    assert.equal(apresArchivageClient.body.encaissementsPeriode.length, 0);
     assert.equal(apresArchivageClient.body.total_contrats, 0);
 
     await request(app).post(`/api/clients/${ids.client}/restaurer`).set('Cookie', cookie).expect(200);
     const apresRestaurationClient = await request(app).get('/api/tableau-de-bord').set('Cookie', cookie).expect(200);
-    assert.equal(Number(apresRestaurationClient.body.encaissements12Mois[0].total), 321.123);
+    assert.equal(Number(apresRestaurationClient.body.encaissementsPeriode[0].total), 321.123);
     assert.equal(apresRestaurationClient.body.total_contrats, 1);
 
     await request(app).delete(`/api/contrats/${ids.contrat}`).set('Cookie', cookie).expect(200);
     const apresArchivage = await request(app).get('/api/tableau-de-bord').set('Cookie', cookie).expect(200);
-    assert.equal(apresArchivage.body.encaissements12Mois.length, 0);
+    assert.equal(apresArchivage.body.encaissementsPeriode.length, 0);
     assert.equal(apresArchivage.body.total_contrats, 0);
 
     await request(app)

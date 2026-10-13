@@ -52,6 +52,10 @@
       <!-- ----- Tableau de bord ----- -->
       <section id="vue-tableau-de-bord" class="vue" hidden>
         <div class="entete-vue"><h2>Tableau de bord</h2></div>
+        <div class="barre-filtres" id="filtres-tableau-de-bord">
+          <label>Du<input type="date" id="filtre-dashboard-du" /></label>
+          <label>Au<input type="date" id="filtre-dashboard-au" /></label>
+        </div>
         <div class="grille-stats" id="stats-tableau-de-bord"></div>
         <div class="carte">
           <h3>120 prochains jours</h3>
@@ -81,7 +85,7 @@
           </div>
         </div>
         <div class="carte">
-          <h3>Encaissements — 12 derniers mois</h3>
+          <h3>Encaissements sur la période</h3>
           <div id="repartition-encaissements"></div>
         </div>
       </section>
@@ -440,7 +444,14 @@
             <option value="rtr">RTR — Renouvelable par tacite reconduction</option>
           </select>
         </label>
-        <label data-paiement-initial>Mode du premier paiement
+        <fieldset class="groupe-feuille-caisse" data-paiement-initial>
+          <legend>Premier paiement encaissé</legend>
+          <div class="choix-binaire">
+            <label class="non"><input type="radio" id="contrat-paiement-confirme-non" name="contrat-paiement-confirme" value="non" checked /><span>Non</span></label>
+            <label class="oui"><input type="radio" id="contrat-paiement-confirme-oui" name="contrat-paiement-confirme" value="oui" /><span>Oui</span></label>
+          </div>
+        </fieldset>
+        <label data-paiement-initial data-paiement-initial-details>Mode du premier paiement
           <select id="contrat-paiement-mode">
             <option value="especes">Espèces</option>
             <option value="cheque">Chèque</option>
@@ -449,7 +460,7 @@
             <option value="autre">Autre</option>
           </select>
         </label>
-        <label data-paiement-initial>Référence du premier paiement
+        <label data-paiement-initial data-paiement-initial-details>Référence du premier paiement
           <input type="text" id="contrat-paiement-reference" />
         </label>
         <label id="zone-contrat-fractionnement">Fréquence de paiement

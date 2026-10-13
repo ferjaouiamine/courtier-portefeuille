@@ -212,6 +212,13 @@ function appliquerReglesFeuilleCaisseEncaissement() {
   }
 }
 
+function appliquerReglesPaiementInitial() {
+  const confirme = $('#contrat-paiement-confirme-oui').checked;
+  $$('[data-paiement-initial-details]').forEach((zone) => { zone.hidden = !confirme; });
+  $('#contrat-paiement-mode').disabled = !confirme;
+  $('#contrat-paiement-reference').disabled = !confirme;
+}
+
 function parametres(objet) {
   const recherche = new URLSearchParams();
   Object.entries(objet).forEach(([cle, valeur]) => {
@@ -638,11 +645,20 @@ function repartitionHtml(lignes, cleNom, cleMontant) {
 
 async function chargerTableauDeBord() {
   await completerEcheanciers();
-  const donnees = await api('/api/tableau-de-bord');
+  const donnees = await api(`/api/tableau-de-bord?${parametres({
+    du: $('#filtre-dashboard-du').value,
+    au: $('#filtre-dashboard-au').value,
+  })}`);
+  if (!$('#filtre-dashboard-du').value) $('#filtre-dashboard-du').value = donnees.du;
+  if (!$('#filtre-dashboard-au').value) $('#filtre-dashboard-au').value = donnees.au;
   const statistiques = [
     ['Total contrats', donnees.total_contrats],
     ['Contrats en cours', donnees.contrats_en_cours],
-    ['Primes émises', formaterMontant(donnees.primes_emises)],
+    ['Prime courante du portefeuille', formaterMontant(donnees.prime_courante_portefeuille)],
+    ['Primes émises sur la période', formaterMontant(donnees.primes_emises_periode)],
+    ['Primes encaissées sur la période', formaterMontant(donnees.primes_encaissees_periode)],
+    ['Impayés sur la période', formaterMontant(donnees.impayes_periode), Number(donnees.impayes_periode) > 0],
+    ['Primes futures', formaterMontant(donnees.primes_futures)],
     ['En retard', donnees.en_retard, Number(donnees.en_retard) > 0],
     ['Sous 30 jours', donnees.sous_30_jours],
   ];
@@ -650,7 +666,7 @@ async function chargerTableauDeBord() {
     `<div class="carte stat${alerte ? ' alerte' : ''}"><div class="valeur">${echapper(valeur)}</div><div class="libelle">${libelle}</div></div>`).join('');
   $('#repartition-compagnie').innerHTML = repartitionHtml(donnees.parCompagnie, 'compagnie_nom', 'primes');
   $('#repartition-branche').innerHTML = repartitionHtml(donnees.parBranche, 'branche', 'primes');
-  $('#repartition-encaissements').innerHTML = repartitionHtml(donnees.encaissements12Mois, 'mois', 'total');
+  $('#repartition-encaissements').innerHTML = repartitionHtml(donnees.encaissementsPeriode, 'mois', 'total');
 
   const frise = $('#frise');
   frise.style.position = 'relative';
@@ -1202,9 +1218,12 @@ async function ouvrirModaleContrat(contrat = null) {
   etat.edition.dureeRtr = contrat && typeDureeContrat(contrat) === 'rtr' ? Number(contrat.duree_mois) || 12 : 12;
   $('#contrat-paiement-mode').value = 'autre';
   $('#contrat-paiement-reference').value = '';
+  $('#contrat-paiement-confirme-non').checked = true;
+  $('#contrat-paiement-confirme-oui').checked = false;
   $('#contrat-retour-feuille-oui').checked = Boolean(contrat?.retour_feuille_caisse);
   $('#contrat-retour-feuille-non').checked = !contrat?.retour_feuille_caisse;
   $$('[data-paiement-initial]').forEach((champ) => { champ.hidden = Boolean(contrat); });
+  appliquerReglesPaiementInitial();
   if (!contrat) $('#contrat-souscripteur').value = $('#contrat-client').value;
   appliquerReglesDureeContrat();
   synchroniserTousLesSelects();
@@ -1529,6 +1548,7 @@ function brancherFormulaires() {
         primeAvenant: estAvenant ? Number($('#contrat-prime').value) : null,
         retourFeuilleCaisse: $('#contrat-retour-feuille-oui').checked,
         remarque: $('#contrat-remarque').value.trim(),
+        paiementInitialConfirme: $('#contrat-paiement-confirme-oui').checked,
         modePaiementInitial: $('#contrat-paiement-mode').value,
         referencePaiementInitial: $('#contrat-paiement-reference').value.trim(),
         dateEffetAvenant: estAvenant ? $('#contrat-date-effet-avenant').value : null,
@@ -1763,6 +1783,12 @@ function brancherEvenements() {
   });
   $('#contrat-fractionnement').addEventListener('change', calculerDateEcheance);
   $('#contrat-type-duree').addEventListener('change', appliquerReglesDureeContrat);
+  ['#filtre-dashboard-du', '#filtre-dashboard-au'].forEach((id) => $(id).addEventListener('change', () => {
+    chargerTableauDeBord().catch((e) => afficherErreur(e.message));
+  }));
+  $$('input[name="contrat-paiement-confirme"]').forEach((radio) => {
+    radio.addEventListener('change', appliquerReglesPaiementInitial);
+  });
   $$('input[name="encaissement-feuille-caisse"]').forEach((radio) => {
     radio.addEventListener('change', appliquerReglesFeuilleCaisseEncaissement);
   });

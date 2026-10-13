@@ -2,6 +2,7 @@
 
 const { pool } = require('./db');
 const { appliquerAvenantsDus } = require('./avenants');
+const { actualiserStatutsEchus } = require('./echeancier');
 
 function determinerDeclencheur(joursRestants) {
   const jours = Number(joursRestants);
@@ -159,6 +160,7 @@ async function traiterOrganisation(organisationId) {
     await client.query('begin');
     await client.query("select set_config('app.organisation_id', $1, true)", [organisationId]);
     await appliquerAvenantsDus(client);
+    await actualiserStatutsEchus(client);
     const creees = await preparerNotifications(client);
     const config = configurationWinSms();
     if (!config) {

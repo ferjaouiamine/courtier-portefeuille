@@ -5,10 +5,28 @@ const assert = require('node:assert/strict');
 const {
   calculerDateTerme,
   calculerNumerosTermes,
+  actualiserStatutsEchus,
   completerTousLesEcheanciers,
+  enregistrerEcheanceInitiale,
   enregistrerPaiementInitial,
   synchroniserProchaineEcheance,
 } = require('../src/echeancier');
+
+test('la souscription peut créer l’échéance initiale sans créer de paiement', async () => {
+  const requetes = [];
+  const client = {
+    async query(texte, parametres) {
+      requetes.push({ texte, parametres });
+      return { rows: [{ id: 'echeance-0' }] };
+    },
+  };
+  const resultat = await enregistrerEcheanceInitiale(client, {
+    id: 'contrat-1', date_effet: '2026-09-15', prime_totale: '103.375', com_brute: '0',
+  });
+  assert.equal(resultat.id, 'echeance-0');
+  assert.equal(requetes.length, 1);
+  assert.match(requetes[0].texte, /insert into echeances/);
+});
 
 test('le paiement initial solde une échéance à la date d’effet', async () => {
   const requetes = [];
@@ -137,4 +155,17 @@ test('un échéancier personnalisé n’est jamais prolongé automatiquement', a
   const prochaine = await synchroniserProchaineEcheance(client, { echeancier_personnalise: true });
   assert.equal(prochaine, null);
   assert.equal(appels, 0);
+});
+
+test('les échéances dépassées sans paiement deviennent impayées', async () => {
+  let texteExecute = '';
+  const total = await actualiserStatutsEchus({
+    query: async (texte) => {
+      texteExecute = texte;
+      return { rowCount: 2, rows: [{ id: '1' }, { id: '2' }] };
+    },
+  });
+  assert.equal(total, 2);
+  assert.match(texteExecute, /date_echeance < current_date/);
+  assert.match(texteExecute, /not exists/);
 });

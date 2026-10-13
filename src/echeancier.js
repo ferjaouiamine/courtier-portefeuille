@@ -22,7 +22,7 @@ function calculerNumerosTermes(dateEffet, fractionnement, dateFin) {
   return numeros;
 }
 
-async function enregistrerPaiementInitial(client, contrat, utilisateurId, paiement = {}) {
+async function enregistrerEcheanceInitiale(client, contrat) {
   const echeance = await client.query(
     `insert into echeances (
        contrat_id, type_echeance, numero_terme, date_echeance, montant_prime, montant_commission
@@ -30,6 +30,11 @@ async function enregistrerPaiementInitial(client, contrat, utilisateurId, paieme
      returning *`,
     [contrat.id, contrat.date_effet, contrat.prime_totale, contrat.com_brute || 0]
   );
+  return echeance.rows[0];
+}
+
+async function enregistrerPaiementInitial(client, contrat, utilisateurId, paiement = {}) {
+  const echeance = await enregistrerEcheanceInitiale(client, contrat);
   const feuilleCaisse = paiement.feuilleCaisse === true;
   const encaissement = await client.query(
     `insert into paiements (
@@ -38,7 +43,7 @@ async function enregistrerPaiementInitial(client, contrat, utilisateurId, paieme
      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      returning *`,
     [
-      echeance.rows[0].id,
+      echeance.id,
       contrat.prime_totale,
       paiement.modePaiement || 'autre',
       paiement.reference || 'Paiement initial à la souscription',
@@ -51,7 +56,23 @@ async function enregistrerPaiementInitial(client, contrat, utilisateurId, paieme
       utilisateurId,
     ]
   );
-  return { echeance: echeance.rows[0], paiement: encaissement.rows[0] };
+  return { echeance, paiement: encaissement.rows[0] };
+}
+
+async function actualiserStatutsEchus(client) {
+  const resultat = await client.query(`
+    update echeances e
+       set statut = 'impayee'
+     where e.supprime_le is null
+       and e.statut = 'a_venir'
+       and e.date_echeance < current_date
+       and not exists (
+         select 1 from paiements p
+         where p.echeance_id = e.id and p.supprime_le is null
+       )
+    returning e.id
+  `);
+  return resultat.rowCount || 0;
 }
 
 async function synchroniserProchaineEcheance(client, contrat) {
@@ -192,7 +213,9 @@ async function completerTousLesEcheanciers(client) {
 module.exports = {
   calculerDateTerme,
   calculerNumerosTermes,
+  actualiserStatutsEchus,
   completerTousLesEcheanciers,
+  enregistrerEcheanceInitiale,
   enregistrerPaiementInitial,
   synchroniserProchaineEcheance,
 };

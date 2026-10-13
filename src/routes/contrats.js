@@ -11,7 +11,9 @@ const {
   normaliserDureeEtFractionnement,
   typeDureeDepuisFractionnement,
 } = require('../regles-contrat');
-const { enregistrerPaiementInitial, synchroniserProchaineEcheance } = require('../echeancier');
+const {
+  enregistrerEcheanceInitiale, enregistrerPaiementInitial, synchroniserProchaineEcheance,
+} = require('../echeancier');
 const {
   appliquerAvenantsDus,
   appliquerVersionCourante,
@@ -359,7 +361,8 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
       numeroContrat, clientId, souscripteurId, societeLeasing, payeurId,
       compagnieId, produitId, typeContrat, immatriculation,
       dateEffet, dateFin, dureeMois, fractionnement, primeTotale,
-      modePaiementInitial, referencePaiementInitial, retourFeuilleCaisse, remarque,
+      paiementInitialConfirme, modePaiementInitial, referencePaiementInitial,
+      retourFeuilleCaisse, remarque,
     } = req.body || {};
 
     if (!numeroContrat || !clientId || !compagnieId || !produitId || !dateEffet || !fractionnement) {
@@ -399,13 +402,23 @@ routeur.post('/', exigerRole('admin', 'agent'), async (req, res) => {
           req.utilisateur.id,
         ]
       );
-      await enregistrerPaiementInitial(client, resultat.rows[0], req.utilisateur.id, {
-        modePaiement: modePaiementInitial || 'autre',
-        reference: String(referencePaiementInitial || '').trim() || null,
-        remarque: remarqueNormalisee || null,
-        feuilleCaisse: false,
-        commissionNette: null,
-      });
+      if (paiementInitialConfirme === true) {
+        const dateCourante = await client.query('select current_date::text as date');
+        if (dateEffet > dateCourante.rows[0].date) {
+          const erreur = new Error('Un paiement initial futur ne peut pas être enregistré.');
+          erreur.status = 400;
+          throw erreur;
+        }
+        await enregistrerPaiementInitial(client, resultat.rows[0], req.utilisateur.id, {
+          modePaiement: modePaiementInitial || 'autre',
+          reference: String(referencePaiementInitial || '').trim() || null,
+          remarque: remarqueNormalisee || null,
+          feuilleCaisse: false,
+          commissionNette: null,
+        });
+      } else {
+        await enregistrerEcheanceInitiale(client, resultat.rows[0]);
+      }
       await synchroniserProchaineEcheance(client, resultat.rows[0]);
       await creerVersionInitiale(client, resultat.rows[0]);
       return resultat.rows[0];

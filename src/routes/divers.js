@@ -361,18 +361,67 @@ routeur.get('/journal-audit', exigerHistorique, async (req, res) => {
 // Tableau de bord
 // =====================================================================
 
+function dateIsoValide(valeur) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(valeur || ''))) return false;
+  const date = new Date(`${valeur}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === valeur;
+}
+
 routeur.get('/tableau-de-bord', async (req, res) => {
   try {
-    const [compteurs, parCompagnie, parBranche, encaissements, frise] = await Promise.all([
+    const maintenant = await requete(`select current_date::text as aujourd_hui,
+      date_trunc('year', current_date)::date::text as debut_annee`);
+    const { aujourd_hui: aujourdHui, debut_annee: debutAnnee } = maintenant.rows[0];
+    const du = req.query.du || debutAnnee;
+    const au = req.query.au || aujourdHui;
+    if (!dateIsoValide(du) || !dateIsoValide(au) || du > au) {
+      return res.status(400).json({ erreur: 'La période du tableau de bord est invalide.' });
+    }
+
+    const [compteurs, financiers, parCompagnie, parBranche, encaissements, frise] = await Promise.all([
       requete(`
         select
           count(*)::int as total_contrats,
           count(*) filter (where c.statut = 'en_cours')::int as contrats_en_cours,
-          coalesce(sum(c.prime_totale) filter (where c.statut = 'en_cours'), 0) as primes_emises
+          coalesce(sum(c.prime_totale) filter (where c.statut = 'en_cours'), 0)
+            as prime_courante_portefeuille
         from contrats c
         join clients cl on cl.id = c.client_id and cl.supprime_le is null
         where c.supprime_le is null
       `),
+      requete(`
+        with echeances_actives as (
+          select e.id, e.date_echeance, e.montant_prime
+          from echeances e
+          join contrats c on c.id = e.contrat_id and c.supprime_le is null
+          join clients cl on cl.id = c.client_id and cl.supprime_le is null
+          where e.supprime_le is null and e.type_echeance = 'terme'
+        ), reglements as (
+          select p.echeance_id, coalesce(sum(p.montant), 0) as montant
+          from paiements p
+          join echeances_actives e on e.id = p.echeance_id
+          where p.supprime_le is null
+            and p.date_paiement <= least($2::date, current_date)
+          group by p.echeance_id
+        )
+        select
+          coalesce(sum(e.montant_prime) filter (
+            where e.date_echeance between $1::date and $2::date
+          ), 0) as primes_emises_periode,
+          coalesce((
+            select sum(p.montant)
+            from paiements p
+            join echeances_actives ep on ep.id = p.echeance_id
+            where p.supprime_le is null and p.date_paiement between $1::date and $2::date
+          ), 0) as primes_encaissees_periode,
+          coalesce(sum(greatest(e.montant_prime - coalesce(r.montant, 0), 0)) filter (
+            where e.date_echeance between $1::date and least($2::date, current_date)
+          ), 0) as impayes_periode,
+          coalesce(sum(e.montant_prime) filter (where e.date_echeance > current_date), 0)
+            as primes_futures
+        from echeances_actives e
+        left join reglements r on r.echeance_id = e.id
+      `, [du, au]),
       requete(`
         select compagnie_nom, count(*)::int as nb_contrats, coalesce(sum(prime_totale), 0) as primes
         from v_portefeuille group by compagnie_nom order by primes desc
@@ -387,11 +436,9 @@ routeur.get('/tableau-de-bord', async (req, res) => {
         join echeances e on e.id = p.echeance_id and e.supprime_le is null
         join contrats c on c.id = e.contrat_id and c.supprime_le is null
         join clients cl on cl.id = c.client_id and cl.supprime_le is null
-        where p.supprime_le is null
-          and p.date_paiement >= date_trunc('month', current_date) - interval '11 months'
-          and p.date_paiement <= current_date
+        where p.supprime_le is null and p.date_paiement between $1::date and $2::date
         group by 1 order by 1
-      `),
+      `, [du, au]),
       requete(`
         select echeance_id, contrat_id, type_echeance, date_echeance, niveau, jours_restants,
                client_nom, numero_contrat, compagnie_nom, montant_prime, montant_regle
@@ -411,10 +458,13 @@ routeur.get('/tableau-de-bord', async (req, res) => {
 
     res.json({
       ...compteurs.rows[0],
+      ...financiers.rows[0],
       ...echeancesUrgence.rows[0],
+      du,
+      au,
       parCompagnie: parCompagnie.rows,
       parBranche: parBranche.rows,
-      encaissements12Mois: encaissements.rows,
+      encaissementsPeriode: encaissements.rows,
       frise120Jours: frise.rows,
     });
   } catch (erreur) {

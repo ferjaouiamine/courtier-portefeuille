@@ -18,7 +18,7 @@ function moisDuFractionnement(fractionnement) {
   return MOIS_PAR_FRACTIONNEMENT[fractionnement] || null;
 }
 
-function normaliserFeuilleCaisse(feuilleCaisse, commissionNette) {
+function normaliserFeuilleCaisse(feuilleCaisse, commissionNette, contexte = {}) {
   if (feuilleCaisse !== true) {
     return { feuilleCaisse: false, commissionNette: null, commissionNetteSaisie: null };
   }
@@ -36,6 +36,13 @@ function normaliserFeuilleCaisse(feuilleCaisse, commissionNette) {
   const valeurNumerique = Number(valeurNormalisee);
   if (!commissionNetteSaisie || !correspondance || !Number.isFinite(valeurNumerique) || valeurNumerique < 0) {
     throw erreurSaisie('La commission nette est obligatoire lorsque la feuille de caisse est disponible.');
+  }
+  const montantPaiement = Number(contexte.montant);
+  if (Number.isFinite(montantPaiement) && valeurNumerique > montantPaiement
+      && !String(contexte.remarque || '').trim()) {
+    throw erreurSaisie(
+      'Une commission nette supérieure au paiement doit être justifiée dans la remarque.'
+    );
   }
   return {
     feuilleCaisse: true,
