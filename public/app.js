@@ -645,28 +645,18 @@ function repartitionHtml(lignes, cleNom, cleMontant) {
 
 async function chargerTableauDeBord() {
   await completerEcheanciers();
-  const donnees = await api(`/api/tableau-de-bord?${parametres({
-    du: $('#filtre-dashboard-du').value,
-    au: $('#filtre-dashboard-au').value,
-  })}`);
-  if (!$('#filtre-dashboard-du').value) $('#filtre-dashboard-du').value = donnees.du;
-  if (!$('#filtre-dashboard-au').value) $('#filtre-dashboard-au').value = donnees.au;
+  const donnees = await api('/api/tableau-de-bord');
   const statistiques = [
     ['Total contrats', donnees.total_contrats],
     ['Contrats en cours', donnees.contrats_en_cours],
-    ['Prime courante du portefeuille', formaterMontant(donnees.prime_courante_portefeuille)],
-    ['Primes émises sur la période', formaterMontant(donnees.primes_emises_periode)],
-    ['Primes encaissées sur la période', formaterMontant(donnees.primes_encaissees_periode)],
-    ['Impayés sur la période', formaterMontant(donnees.impayes_periode), Number(donnees.impayes_periode) > 0],
-    ['Primes futures', formaterMontant(donnees.primes_futures)],
-    ['En retard', donnees.en_retard, Number(donnees.en_retard) > 0],
-    ['Sous 30 jours', donnees.sous_30_jours],
+    ['Contrats en retard', donnees.en_retard, Number(donnees.en_retard) > 0],
+    ['Contrats sous 30 jours', donnees.sous_30_jours],
   ];
   $('#stats-tableau-de-bord').innerHTML = statistiques.map(([libelle, valeur, alerte]) =>
     `<div class="carte stat${alerte ? ' alerte' : ''}"><div class="valeur">${echapper(valeur)}</div><div class="libelle">${libelle}</div></div>`).join('');
   $('#repartition-compagnie').innerHTML = repartitionHtml(donnees.parCompagnie, 'compagnie_nom', 'primes');
   $('#repartition-branche').innerHTML = repartitionHtml(donnees.parBranche, 'branche', 'primes');
-  $('#repartition-encaissements').innerHTML = repartitionHtml(donnees.encaissementsPeriode, 'mois', 'total');
+  $('#repartition-encaissements').innerHTML = repartitionHtml(donnees.encaissements12Mois, 'mois', 'total');
 
   const frise = $('#frise');
   frise.style.position = 'relative';
@@ -1093,8 +1083,11 @@ async function chargerComptabilite(sansCache = false) {
   $('#filtre-comptabilite-au').value = donnees.au;
   const totaux = donnees.totaux;
   const statistiques = [
+    ['Prime courante du portefeuille', formaterMontant(totaux.prime_courante_portefeuille)],
+    ['Primes émises sur la période', formaterMontant(totaux.primes_emises_periode)],
+    ['Primes encaissées sur la période', formaterMontant(totaux.encaisse)],
+    ['Impayés sur la période', formaterMontant(totaux.impayes_periode), Number(totaux.impayes_periode) > 0],
     ['Commission nette', formaterMontant(totaux.commission_nette)],
-    ['Primes encaissées', formaterMontant(totaux.encaisse)],
     ['Nombre de paiements', totaux.nb_paiements],
     ['Sans feuille de caisse', totaux.nb_sans_feuille, Number(totaux.nb_sans_feuille) > 0, 'sans_feuille'],
     ['Commission à 0 (regroupée sur un autre dossier)', totaux.nb_commission_lot, false, 'commission_lot'],
@@ -1783,9 +1776,6 @@ function brancherEvenements() {
   });
   $('#contrat-fractionnement').addEventListener('change', calculerDateEcheance);
   $('#contrat-type-duree').addEventListener('change', appliquerReglesDureeContrat);
-  ['#filtre-dashboard-du', '#filtre-dashboard-au'].forEach((id) => $(id).addEventListener('change', () => {
-    chargerTableauDeBord().catch((e) => afficherErreur(e.message));
-  }));
   $$('input[name="contrat-paiement-confirme"]').forEach((radio) => {
     radio.addEventListener('change', appliquerReglesPaiementInitial);
   });

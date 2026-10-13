@@ -215,10 +215,42 @@ routeur.get('/comptabilite', async (req, res) => {
                 nullif(trim(p.remarque), '') is not null as a_remarque
          ${PAIEMENTS}
          where ${FILTRE_PERIODE}
+       ), echeances_actives as materialized (
+         select e.id, e.date_echeance, e.montant_prime
+         from echeances e
+         join contrats c on c.id = e.contrat_id and c.supprime_le is null
+         join clients cl on cl.id = c.client_id and cl.supprime_le is null
+         where e.supprime_le is null and e.type_echeance = 'terme'
+       ), reglements as (
+         select p.echeance_id, coalesce(sum(p.montant), 0) as montant
+         from paiements p
+         join echeances_actives e on e.id = p.echeance_id
+         where p.supprime_le is null and p.date_paiement <= least($2::date, current_date)
+         group by p.echeance_id
+       ), indicateurs_financiers as (
+         select
+           (select coalesce(sum(c.prime_totale), 0)
+            from contrats c
+            join clients cl on cl.id = c.client_id and cl.supprime_le is null
+            where c.supprime_le is null and c.statut = 'en_cours') as prime_courante_portefeuille,
+           coalesce(sum(e.montant_prime) filter (
+             where e.date_echeance between $1::date and $2::date
+           ), 0) as primes_emises_periode,
+           coalesce(sum(greatest(e.montant_prime - coalesce(r.montant, 0), 0)) filter (
+             where e.date_echeance between $1::date and least($2::date, current_date)
+           ), 0) as impayes_periode
+         from echeances_actives e
+         left join reglements r on r.echeance_id = e.id
        )
        select
          (select jsonb_build_object(
             'encaisse', coalesce(sum(montant), 0),
+            'prime_courante_portefeuille',
+              (select prime_courante_portefeuille from indicateurs_financiers),
+            'primes_emises_periode',
+              (select primes_emises_periode from indicateurs_financiers),
+            'impayes_periode',
+              (select impayes_periode from indicateurs_financiers),
             'commission_nette', coalesce(sum(com_nette), 0),
             'nb_paiements', count(*),
             'nb_sans_feuille', count(*) filter (where not feuille_caisse),
