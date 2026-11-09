@@ -26,7 +26,7 @@ routeur.get('/', async (req, res) => {
               count(*) over() as total_elements
        from clients
        where supprime_le is null ${conditionRecherche}
-       order by nom
+       order by nom, id
        limit $${parametres.length - 1} offset $${parametres.length}`,
       parametres
     );

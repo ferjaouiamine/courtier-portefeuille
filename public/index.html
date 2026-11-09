@@ -414,16 +414,16 @@
           <input type="date" id="contrat-date-effet-avenant" />
         </label>
         <label class="pleine-largeur">Assuré / client
-          <select id="contrat-client" required></select>
+          <select id="contrat-client" data-recherche-clients required><option value="">Rechercher un client…</option></select>
         </label>
         <label>Souscripteur
-          <select id="contrat-souscripteur" required></select>
+          <select id="contrat-souscripteur" data-recherche-clients required><option value="">Rechercher un client…</option></select>
         </label>
         <label>Société de leasing
           <input type="text" id="contrat-societe-leasing" placeholder="Nom de la société de leasing" />
         </label>
         <label>Payeur
-          <select id="contrat-payeur"><option value="">Souscripteur</option></select>
+          <select id="contrat-payeur" data-recherche-clients><option value="">Souscripteur</option></select>
         </label>
         <label>N° de contrat
           <input type="text" id="contrat-numero" required />

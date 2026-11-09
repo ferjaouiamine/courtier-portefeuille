@@ -5,7 +5,6 @@ const etat = {
   vue: 'tableau-de-bord',
   compagnies: [],
   produits: [],
-  clients: [],
   contratId: null,
   contratCourant: null,
   clientId: null,
@@ -252,6 +251,7 @@ function libelleDuSelect(select) {
 
 function rendreSelectRecherchable(select) {
   if (composantsSelect.has(select)) return;
+  const rechercheClients = select.hasAttribute('data-recherche-clients');
 
   const conteneur = document.createElement('div');
   conteneur.className = 'select-recherchable';
@@ -264,6 +264,7 @@ function rendreSelectRecherchable(select) {
   saisie.setAttribute('role', 'combobox');
   saisie.setAttribute('aria-autocomplete', 'list');
   saisie.setAttribute('aria-expanded', 'false');
+  if (rechercheClients) saisie.placeholder = 'Nom, CIN/matricule ou téléphone';
 
   const liste = document.createElement('div');
   liste.className = 'select-recherche-options';
@@ -291,6 +292,16 @@ function rendreSelectRecherchable(select) {
     select, conteneur, saisie, liste, optionsVisibles: [], indexActif: -1, ouvert: false,
   };
   composantsSelect.set(select, composant);
+  let minuterieRecherche;
+  let requeteRecherche;
+  let versionRecherche = 0;
+
+  composant.annulerRecherche = () => {
+    clearTimeout(minuterieRecherche);
+    requeteRecherche?.abort();
+    versionRecherche += 1;
+    saisie.setAttribute('aria-busy', 'false');
+  };
 
   function positionnerListe() {
     if (!composant.ouvert) return;
@@ -328,15 +339,16 @@ function rendreSelectRecherchable(select) {
   }
 
   function choisirOption(option) {
-    if (!option) return;
+    if (!option || option.disabled) return;
+    if (option.action) return option.action();
     select.value = option.value;
     select.dispatchEvent(new Event('change', { bubbles: true }));
     fermerSelectRecherchable(composant);
   }
 
-  function afficherOptions(recherche = '') {
+  function afficherOptions(recherche = '', optionsDistantes = null) {
     const terme = normaliserRechercheSelect(recherche.trim());
-    composant.optionsVisibles = [...select.options].filter((option) => (
+    composant.optionsVisibles = optionsDistantes || [...select.options].filter((option) => (
       !option.disabled && normaliserRechercheSelect(option.textContent).includes(terme)
     ));
     liste.replaceChildren();
@@ -355,19 +367,77 @@ function rendreSelectRecherchable(select) {
       const bouton = document.createElement('button');
       bouton.type = 'button';
       bouton.className = 'select-recherche-option';
+      bouton.disabled = option.disabled === true;
       bouton.id = `${liste.id}-option-${index}`;
       bouton.setAttribute('role', 'option');
-      bouton.setAttribute('aria-selected', String(option.value === select.value));
-      bouton.dataset.value = option.value;
+      bouton.setAttribute('aria-selected', String(!option.action && option.value === select.value));
+      if (!option.action) bouton.dataset.value = option.value;
       bouton.textContent = option.textContent.trim();
       bouton.addEventListener('mouseenter', () => definirOptionActive(index));
-      bouton.addEventListener('click', () => choisirOption(option));
+      bouton.addEventListener('click', (event) => {
+        // Une recherche remplace la liste : le clic ne doit pas être pris pour un clic extérieur.
+        event.stopPropagation();
+        choisirOption(option);
+      });
       liste.append(bouton);
     });
 
     const indexSelectionne = composant.optionsVisibles.findIndex((option) => option.value === select.value);
     definirOptionActive(indexSelectionne >= 0 ? indexSelectionne : 0);
     positionnerListe();
+  }
+
+  function rechercherClients(recherche, page = 1, delai = 0) {
+    composant.annulerRecherche();
+    const version = versionRecherche;
+    composant.optionsVisibles = [];
+    definirOptionActive(-1);
+    liste.replaceChildren();
+    const message = document.createElement('p');
+    message.className = 'select-recherche-vide';
+    message.setAttribute('role', 'status');
+    message.textContent = 'Recherche en cours…';
+    liste.append(message);
+    saisie.setAttribute('aria-busy', 'true');
+    positionnerListe();
+
+    minuterieRecherche = setTimeout(async () => {
+      requeteRecherche = new AbortController();
+      try {
+        const resultat = await api(`/api/clients?${parametres({ recherche: recherche.trim(), page, limite: 50 })}`, {
+          signal: requeteRecherche.signal,
+        });
+        if (version !== versionRecherche || !composant.ouvert) return;
+        // Garder la sélection même lorsqu'elle ne figure pas dans la page recherchée.
+        const valeur = select.value;
+        const selection = select.options[select.selectedIndex];
+        const vide = [...select.options].find((option) => option.value === '');
+        const options = resultat.donnees.map((client) => new Option(client.nom, client.id));
+        const conservees = selection?.value && !options.some((option) => option.value === valeur)
+          ? [selection] : [];
+        select.replaceChildren(...(vide ? [vide] : []), ...conservees, ...options);
+        select.value = valeur;
+        const visibles = vide ? [vide, ...options] : [...options];
+        if (!options.length) {
+          visibles.push({ textContent: 'Aucun client trouvé', disabled: true });
+        }
+        if (page > 1) visibles.push({
+          textContent: '← Résultats précédents', action: () => rechercherClients(recherche, page - 1),
+        });
+        if (page < resultat.pagination.totalPages) visibles.push({
+          textContent: 'Résultats suivants →', action: () => rechercherClients(recherche, page + 1),
+        });
+        afficherOptions('', visibles);
+      } catch (erreur) {
+        if (version !== versionRecherche || !composant.ouvert) return;
+        afficherOptions('', [{
+          textContent: `${erreur.message} — Réessayer`,
+          action: () => rechercherClients(recherche, page),
+        }]);
+      } finally {
+        if (version === versionRecherche) saisie.setAttribute('aria-busy', 'false');
+      }
+    }, delai);
   }
 
   function ouvrirSelectRecherchable(reinitialiserRecherche = true) {
@@ -381,14 +451,16 @@ function rendreSelectRecherchable(select) {
     if (typeof liste.showPopover === 'function') {
       try { liste.showPopover(); } catch (_) { /* navigateur sans prise en charge complète */ }
     }
-    afficherOptions(saisie.value);
+    if (rechercheClients) rechercherClients(saisie.value);
+    else afficherOptions(saisie.value);
   }
 
   saisie.addEventListener('focus', ouvrirSelectRecherchable);
   saisie.addEventListener('click', ouvrirSelectRecherchable);
   saisie.addEventListener('input', () => {
     if (!composant.ouvert) ouvrirSelectRecherchable(false);
-    afficherOptions(saisie.value);
+    if (rechercheClients) rechercherClients(saisie.value, 1, 300);
+    else afficherOptions(saisie.value);
   });
   saisie.addEventListener('keydown', (event) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -414,12 +486,19 @@ function rendreSelectRecherchable(select) {
   if (select.form) {
     select.form.addEventListener('reset', () => setTimeout(() => synchroniserSelectRecherchable(select)));
   }
+  const dialogue = select.closest('dialog');
+  if (dialogue) {
+    new MutationObserver(() => {
+      if (!dialogue.open) fermerSelectRecherchable(composant);
+    }).observe(dialogue, { attributes: true, attributeFilter: ['open'] });
+  }
   synchroniserSelectRecherchable(select);
 }
 
 function fermerSelectRecherchable(composant = composantSelectOuvert) {
   if (!composant?.ouvert) return;
   composant.ouvert = false;
+  composant.annulerRecherche();
   composant.saisie.value = libelleDuSelect(composant.select);
   composant.saisie.setAttribute('aria-expanded', 'false');
   composant.saisie.removeAttribute('aria-activedescendant');
@@ -608,13 +687,21 @@ async function completerEcheanciers() {
   etat.echeanciersCompletes = true;
 }
 
-async function chargerClientsPourSelect() {
-  if (etat.clients.length) return;
-  const resultat = await api('/api/clients?limite=100');
-  etat.clients = resultat.donnees;
-  remplirSelect('#contrat-client', etat.clients, (x) => x.nom, false);
-  remplirSelect('#contrat-souscripteur', etat.clients, (x) => x.nom, false);
-  remplirSelect('#contrat-payeur', etat.clients, (x) => x.nom, false);
+function preparerClientsPourSelect(contrat) {
+  const selections = [
+    ['#contrat-client', contrat?.client_id, contrat?.client_nom],
+    ['#contrat-souscripteur', contrat?.souscripteur_id || contrat?.client_id,
+      contrat?.souscripteur_id ? contrat.souscripteur_nom : contrat?.client_nom],
+    ['#contrat-payeur', contrat?.payeur_id, contrat?.payeur_nom],
+  ];
+  for (const [selecteur, id, nom] of selections) {
+    const select = $(selecteur);
+    fermerSelectRecherchable(composantsSelect.get(select));
+    const vide = [...select.options].find((option) => option.value === '');
+    select.replaceChildren(vide, ...(id ? [new Option(nom || 'Client sélectionné', id)] : []));
+    select.value = id || '';
+    synchroniserSelectRecherchable(select);
+  }
 }
 
 function afficherPagination(type, pagination) {
@@ -1178,7 +1265,8 @@ function ouvrirModaleClient(client = null) {
 }
 
 async function ouvrirModaleContrat(contrat = null) {
-  await Promise.all([chargerReferentiels(), chargerClientsPourSelect()]);
+  await chargerReferentiels();
+  preparerClientsPourSelect(contrat);
   etat.edition.contrat = contrat?.id || null;
   etat.edition.avenant = false;
   etat.edition.avenantId = null;
@@ -1237,9 +1325,11 @@ async function ouvrirModaleAvenant(contrat, avenant = null) {
   await ouvrirModaleContrat(avenant ? {
     ...contrat,
     souscripteur_id: avenant.souscripteur_id,
+    souscripteur_nom: avenant.souscripteur_nom,
     societe_leasing: avenant.societe_leasing,
     societe_leasing_nom: avenant.societe_leasing,
     payeur_id: avenant.payeur_id,
+    payeur_nom: avenant.payeur_nom,
     compagnie_id: avenant.compagnie_id,
     produit_id: avenant.produit_id,
     immatriculation: avenant.immatriculation,
@@ -1455,7 +1545,6 @@ async function actionDeleguee(event) {
     } else if (action === 'archiver-client' && window.confirm('Supprimer ce client ? Il sera placé dans la corbeille.')) {
       const clientId = id || etat.clientId;
       await api(`/api/clients/${clientId}`, { method: 'DELETE' });
-      etat.clients = [];
       await changerVue('clients');
     } else if (action === 'nouvel-utilisateur') {
       ouvrirModaleUtilisateur();
@@ -1486,12 +1575,12 @@ async function actionDeleguee(event) {
       await chargerReferentiel();
     } else if (action === 'restaurer') {
       await api(`/api/${bouton.dataset.table}/${id}/restaurer`, { method: 'POST' });
-      etat.compagnies = []; etat.produits = []; etat.clients = [];
+      etat.compagnies = []; etat.produits = [];
       await chargerCorbeille();
     } else if (action === 'supprimer-definitivement'
       && window.confirm('Supprimer définitivement cet élément ? Cette action est irréversible.')) {
       await api(`/api/corbeille/${bouton.dataset.table}/${id}`, { method: 'DELETE' });
-      etat.compagnies = []; etat.produits = []; etat.clients = [];
+      etat.compagnies = []; etat.produits = [];
       await chargerCorbeille();
     }
   } catch (e) {
@@ -1514,7 +1603,7 @@ function brancherFormulaires() {
       await api(id ? `/api/clients/${id}` : '/api/clients', {
         method: id ? 'PUT' : 'POST', body: JSON.stringify(corps),
       });
-      $('#modale-client').close(); etat.clients = [];
+      $('#modale-client').close();
       if (id && etat.vue === 'fiche-client') await ouvrirFicheClient(id); else await changerVue('clients');
     });
   });
@@ -1784,8 +1873,13 @@ function brancherEvenements() {
   });
   $('#contrat-client').addEventListener('change', () => {
     if (!etat.edition.contrat) {
-      $('#contrat-souscripteur').value = $('#contrat-client').value;
-      synchroniserSelectRecherchable($('#contrat-souscripteur'));
+      const client = $('#contrat-client');
+      const souscripteur = $('#contrat-souscripteur');
+      if (client.value && ![...souscripteur.options].some((option) => option.value === client.value)) {
+        souscripteur.append(new Option(libelleDuSelect(client), client.value));
+      }
+      souscripteur.value = client.value;
+      synchroniserSelectRecherchable(souscripteur);
     }
   });
   brancherFormulaires();
