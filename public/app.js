@@ -855,11 +855,15 @@ async function ouvrirFicheContrat(id) {
     <button type="button" class="principal" data-action="creer-avenant">Créer un avenant</button>
     ${contrat.statut === 'en_cours' && typeDureeContrat(contrat) === 'rtr' ? '<button type="button" data-action="renouveler-contrat">Renouveler</button>' : ''}
     <button type="button" class="danger" data-action="archiver-contrat">Archiver</button></div>` : '';
-  const echeances = contrat.echeances.map((ligne) => `<tr${peutEcrire() ? ` data-action="modifier-echeance" data-id="${echapper(ligne.id)}" title="Modifier l'échéance"` : ''}>
+  const echeances = contrat.echeances.map((ligne) => {
+    const solde = Math.max(0, Math.round((Number(ligne.montant_prime) - Number(ligne.montant_regle)) * 1000) / 1000);
+    return `<tr${peutEcrire() ? ` data-action="modifier-echeance" data-id="${echapper(ligne.id)}" title="Modifier l'échéance"` : ''}>
     <td>${ligne.type_echeance === 'terme' ? echapper(ligne.numero_terme) : 'Renouvellement'}</td>
     <td>${formaterDate(ligne.date_echeance)}</td>
     <td>${formaterMontant(ligne.montant_prime)}</td>
-    <td>${etiquetteStatutEcheance(ligne.statut)}</td></tr>`).join('');
+    <td>${etiquetteStatutEcheance(ligne.statut)}</td>
+    <td>${peutEcrire() && solde > 0 ? `<button type="button" data-action="encaisser" data-id="${echapper(ligne.id)}" data-solde="${solde}">Encaisser</button>` : ''}</td></tr>`;
+  }).join('');
   const paiements = contrat.paiements.map((ligne) => `<tr${peutEcrire() ? ` data-action="modifier-paiement" data-id="${echapper(ligne.id)}" title="Modifier le paiement"` : ''}>
     <td>${formaterDate(ligne.date_paiement)}</td>
     <td>${formaterMontant(ligne.montant)}</td><td>${etiquetteFeuilleCaisse(ligne.feuille_caisse)}</td>
@@ -946,7 +950,7 @@ async function ouvrirFicheContrat(id) {
     <div class="carte"><div class="entete-section"><h3>Pièces jointes du contrat</h3>${ajoutPieceJointe}</div>
     ${piecesJointes ? `<ul class="liste-pieces-jointes">${piecesJointes}</ul>` : '<p class="etat-vide">Aucune pièce jointe.</p>'}</div>
     <div class="carte"><h3>Échéancier complet</h3>${echeances
-      ? `<div class="tableau-responsive"><table id="tableau-echeancier-contrat"><thead><tr><th>N°</th><th>Date</th><th>Montant</th><th>Statut</th></tr></thead><tbody>${echeances}</tbody></table></div>`
+      ? `<div class="tableau-responsive"><table id="tableau-echeancier-contrat"><thead><tr><th>N°</th><th>Date</th><th>Montant</th><th>Statut</th><th>Action</th></tr></thead><tbody>${echeances}</tbody></table></div>`
       : '<p class="etat-vide">Aucune échéance pour ce contrat.</p>'}</div>
     <div class="carte"><h3>Paiements</h3>${paiements ? `<div class="tableau-responsive"><table id="tableau-paiements-contrat"><thead><tr><th>Date du paiement</th><th>Montant</th><th>Feuille de caisse</th><th>Date de la feuille</th><th>Commission nette</th><th>Mode</th><th>Référence</th><th>Remarque</th></tr></thead><tbody>${paiements}</tbody></table></div>` : '<p class="etat-vide">Aucun paiement.</p>'}</div>
     ${aDesAvenants ? `<div class="carte"><h3>Avenants</h3><div class="liste-versions-contrat">${versions}</div></div>` : ''}
@@ -1671,6 +1675,14 @@ function brancherFormulaires() {
       if (paiementId) {
         await ouvrirFicheContrat(etat.contratId);
         afficherSucces('Paiement modifié.', $('#vue-fiche-contrat'));
+        return;
+      }
+      if (etat.vue === 'fiche-contrat') {
+        await ouvrirFicheContrat(etat.contratId);
+        const message = resultat.statutEcheance === 'payee'
+          ? 'Échéance entièrement encaissée. Le paiement a été ajouté.'
+          : 'Encaissement partiel ajouté au contrat.';
+        afficherSucces(message, $('#vue-fiche-contrat'));
         return;
       }
       await chargerEcheances();

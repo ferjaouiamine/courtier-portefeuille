@@ -326,7 +326,7 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
       if (existante.rowCount === 0) return null;
 
       const paiements = await client.query(
-        `select coalesce(sum(montant), 0) as montant_regle
+        `select coalesce(sum(montant), 0) as montant_regle, current_date::text as date_courante
          from paiements where echeance_id = $1 and supprime_le is null`,
         [req.params.id]
       );
@@ -335,6 +335,17 @@ routeur.put('/:id', exigerRole('admin', 'agent'), async (req, res) => {
       const tolerance = 0.0005;
       if (montantEcheance + tolerance < totalRegle) {
         const erreur = new Error(`Le montant ne peut pas être inférieur aux paiements déjà saisis (${totalRegle.toFixed(3)} DT).`);
+        erreur.status = 400;
+        throw erreur;
+      }
+      const statutCalcule = totalRegle >= montantEcheance - tolerance
+        ? 'payee'
+        : (totalRegle > 0 ? 'partielle'
+          : (dateEcheance < paiements.rows[0].date_courante ? 'impayee' : 'a_venir'));
+      if (statut !== statutCalcule) {
+        const erreur = new Error(
+          `Le statut financier est calculé depuis les paiements. Le statut attendu est « ${statutCalcule} ».`
+        );
         erreur.status = 400;
         throw erreur;
       }

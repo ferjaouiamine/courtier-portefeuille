@@ -12,7 +12,8 @@ const {
   typeDureeDepuisFractionnement,
 } = require('../regles-contrat');
 const {
-  enregistrerEcheanceInitiale, enregistrerPaiementInitial, synchroniserProchaineEcheance,
+  actualiserStatutsEchus, enregistrerEcheanceInitiale, enregistrerPaiementInitial,
+  synchroniserProchaineEcheance,
 } = require('../echeancier');
 const {
   appliquerAvenantsDus,
@@ -90,6 +91,7 @@ routeur.get('/', async (req, res) => {
     // Une seule connexion pour appliquer les avenants arrivés à échéance puis lire la page.
     const resultat = await transactionAvecUtilisateur(req.utilisateur.id, async (client) => {
       await appliquerAvenantsDus(client, req.utilisateur.id);
+      await actualiserStatutsEchus(client);
       return client.query(
       `select c.id, c.numero_contrat, c.statut, c.date_effet, c.date_fin, c.duree_mois, c.fractionnement,
               case when c.fractionnement = 'prime_unique' then 'ferme' else 'rtr' end as type_duree,
@@ -176,7 +178,7 @@ routeur.get('/:id', async (req, res) => {
 
       const paiements = await client.query(
         `select p.* from paiements p
-         join echeances e on e.id = p.echeance_id
+         join echeances e on e.id = p.echeance_id and e.supprime_le is null
          where e.contrat_id = $1 and p.supprime_le is null
          order by p.date_paiement desc`,
         [req.params.id]

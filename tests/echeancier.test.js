@@ -157,7 +157,7 @@ test('un échéancier personnalisé n’est jamais prolongé automatiquement', a
   assert.equal(appels, 0);
 });
 
-test('les échéances dépassées sans paiement deviennent impayées', async () => {
+test('les statuts des échéances sont recalculés depuis les paiements', async () => {
   let texteExecute = '';
   const total = await actualiserStatutsEchus({
     query: async (texte) => {
@@ -166,6 +166,7 @@ test('les échéances dépassées sans paiement deviennent impayées', async () 
     },
   });
   assert.equal(total, 2);
+  assert.match(texteExecute, /montant_regle >= montant_prime/);
   assert.match(texteExecute, /date_echeance < current_date/);
-  assert.match(texteExecute, /not exists/);
+  assert.match(texteExecute, /statut is distinct from/);
 });

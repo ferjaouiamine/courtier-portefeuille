@@ -61,15 +61,26 @@ async function enregistrerPaiementInitial(client, contrat, utilisateurId, paieme
 
 async function actualiserStatutsEchus(client) {
   const resultat = await client.query(`
+    with montants as (
+      select e.id, e.montant_prime, e.date_echeance,
+             coalesce(sum(p.montant) filter (where p.supprime_le is null), 0) as montant_regle
+      from echeances e
+      left join paiements p on p.echeance_id = e.id
+      where e.supprime_le is null
+      group by e.id, e.montant_prime, e.date_echeance
+    ), statuts as (
+      select id, case
+        when montant_prime > 0 and montant_regle >= montant_prime then 'payee'
+        when montant_regle > 0 then 'partielle'
+        when date_echeance < current_date then 'impayee'
+        else 'a_venir'
+      end as statut_calcule
+      from montants
+    )
     update echeances e
-       set statut = 'impayee'
-     where e.supprime_le is null
-       and e.statut = 'a_venir'
-       and e.date_echeance < current_date
-       and not exists (
-         select 1 from paiements p
-         where p.echeance_id = e.id and p.supprime_le is null
-       )
+       set statut = s.statut_calcule
+      from statuts s
+     where e.id = s.id and e.statut is distinct from s.statut_calcule
     returning e.id
   `);
   return resultat.rowCount || 0;
